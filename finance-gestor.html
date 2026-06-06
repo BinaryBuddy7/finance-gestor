@@ -859,7 +859,7 @@ function renderHomeGroupCard(opts){
         <span style="font-weight:700;font-size:15px;flex:1">${title}</span>
         <span class="text-xs text-muted">${bancas} banca${bancas!==1?'s':''}</span>
       </div>
-      <div class="font-mono" style="font-size:26px;font-weight:700;color:${lucro>=0?'var(--green)':'var(--red)'};letter-spacing:-.5px">${type==='crypto'?fmtUSD(lucro):fmtBRL(lucro*getUsd())}</div>
+      <div class="font-mono" style="font-size:26px;font-weight:700;color:${lucro>=0?'var(--green)':'var(--red)'};letter-spacing:-.5px">${type==='crypto'?fmtUSD(lucro):fmtBRL(lucro)}</div>
       ${type==='crypto'?`<div style="font-size:11px;color:var(--text3);margin-top:2px;font-family:var(--mono)">${fmtBRL(lucro*getUsd())}</div>`:''}
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
@@ -905,7 +905,7 @@ function renderHome(){
     return`<div style="display:flex;align-items:center;gap:6px;font-size:12px">
       <span class="color-dot" style="background:${b.color}"></span>
       <span style="flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.name}${b.isOperator?` <span style="color:var(--purple);font-size:10px">OP ${b.split||0}%</span>`:''}</span>
-      <span class="font-mono" style="color:${l>=0?'var(--green)':'var(--red)'}">${fmtBRL(l*getUsd())}</span>
+      <span class="font-mono" style="color:${l>=0?'var(--green)':'var(--red)'}">${fmtBRL(l)}</span>
     </div>`;
   }).join('');
 
@@ -946,48 +946,111 @@ function renderHome(){
   const dEmpPago=dEmp.filter(e=>e.tipo==='Saída'&&e.pago).reduce((s,e)=>s+(parseFloat(e.valorReal||e.valorEsperado)||0),0);
   const dPesPago=dPes.filter(e=>e.tipo==='Saída'&&e.pago).reduce((s,e)=>s+(parseFloat(e.valorReal||e.valorEsperado)||0),0);
 
+  const rate=getUsd();
+  const base=(state.banco.contaBRL+state.banco.reservaBRL+betSaldoBRL)+(state.banco.contaUSD+state.banco.trezorUSD+cryptoSaldoUSD)*rate;
+  const withEmp=state.patrimonioOpts.incluirEmp?empCap:0;
+  const withImp=state.patrimonioOpts.incluirImp?impReal+impProj:0;
+  const totalPatrimonio=base+withEmp+withImp;
+
+  // alocação
+  const themeAccent=getComputedStyle(document.documentElement).getPropertyValue('--orange').trim()||'#f7931a';
+  const allocItems=[
+    {label:'Banca Crypto',icon:'ti-currency-bitcoin',valor:cryptoSaldoUSD*rate,color:themeAccent},
+    {label:'Banca Bet',icon:'ti-trophy',valor:betSaldoBRL,color:'#4361ee'},
+    {label:'Caixa BRL',icon:'ti-building-bank',valor:state.banco.contaBRL,color:'#2dc653'},
+    {label:'Reserva Emergência',icon:'ti-shield',valor:state.banco.reservaBRL,color:'#cc5de8'},
+    {label:'Reserva USD',icon:'ti-currency-dollar',valor:(state.banco.contaUSD+state.banco.trezorUSD)*rate,color:'#ffd43b'},
+  ].filter(a=>a.valor>0);
+
   return`
 <div class="page-header">
   <div class="page-title">Finance Gestor</div>
   <div class="page-subtitle">Visão geral do seu patrimônio e operações</div>
 </div>
 
-<div class="cards-grid" style="grid-template-columns:repeat(2,1fr);max-width:400px;margin-bottom:12px">
-  <div class="stat-card" onclick="navigate('banco')" style="cursor:pointer">
-    <div class="stat-card-label"><i class="ti ti-building-bank"></i> Total patrimônio</div>
-    <div class="stat-card-value green" id="home-patrimonio-val">${(()=>{
-      const base=(state.banco.contaBRL+state.banco.reservaBRL+betSaldoBRL)+(state.banco.contaUSD+state.banco.trezorUSD+cryptoSaldoUSD)*getUsd();
-      const withEmp=state.patrimonioOpts.incluirEmp?empCap:0;
-      const withImp=state.patrimonioOpts.incluirImp?impReal+impProj:0;
-      return fmtBRL(base+withEmp+withImp);
-    })()}</div>
-    ${(state.patrimonioOpts.incluirEmp||state.patrimonioOpts.incluirImp)?`<div class="stat-card-sub" style="color:var(--orange)">+extras incluídos</div>`:''}
-  </div>
-  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro total</div><div class="stat-card-value ${totalLucro>=0?'green':'red'}">${fmtBRL(totalLucro*getUsd())}</div></div>
-</div>
-<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px;max-width:400px;margin-bottom:28px">
-  <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text3);margin-bottom:12px">Incluir no patrimônio</div>
-  <div style="display:flex;flex-direction:column;gap:10px">
-    ${state.modules.outros?`
-    <label class="toggle" style="justify-content:space-between;cursor:pointer" onclick="state.patrimonioOpts.incluirEmp=!state.patrimonioOpts.incluirEmp;renderPage()">
-      <div>
-        <div style="font-size:13px;font-weight:600;color:var(--amber)"><i class="ti ti-hand-money"></i> Capital emprestado</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:2px">${fmtBRL(empCap)} a receber · juros recebidos ${fmtBRL(empJurosRec)}</div>
+<div style="display:grid;grid-template-columns:380px 1fr;gap:16px;margin-bottom:28px;align-items:start">
+  <div>
+    <div class="cards-grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+      <div class="stat-card" onclick="navigate('banco')" style="cursor:pointer">
+        <div class="stat-card-label"><i class="ti ti-building-bank"></i> Total patrimônio</div>
+        <div class="stat-card-value" style="color:var(--orange)">${fmtBRL(totalPatrimonio)}</div>
+        ${(state.patrimonioOpts.incluirEmp||state.patrimonioOpts.incluirImp)?`<div class="stat-card-sub" style="color:var(--orange)">+extras incluídos</div>`:''}
       </div>
-      <input type="checkbox" ${state.patrimonioOpts.incluirEmp?'checked':''} onclick="event.stopPropagation()">
-      <div class="toggle-track"><div class="toggle-thumb"></div></div>
-    </label>
-    <label class="toggle" style="justify-content:space-between;cursor:pointer" onclick="state.patrimonioOpts.incluirImp=!state.patrimonioOpts.incluirImp;renderPage()">
-      <div>
-        <div style="font-size:13px;font-weight:600;color:var(--purple)"><i class="ti ti-apple"></i> Importação Apple</div>
-        <div style="font-size:11px;color:var(--text2);margin-top:2px">Realizado ${fmtBRL(impReal)} · Projetado ${fmtBRL(impProj)}</div>
+      <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro total</div><div class="stat-card-value ${totalLucro>=0?'green':'red'}">${fmtBRL(totalLucro*rate)}</div></div>
+    </div>
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px">
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text3);margin-bottom:12px">Incluir no patrimônio</div>
+      <div style="display:flex;flex-direction:column;gap:10px">
+        ${state.modules.outros?`
+        <label class="toggle" style="justify-content:space-between;cursor:pointer" onclick="state.patrimonioOpts.incluirEmp=!state.patrimonioOpts.incluirEmp;renderPage()">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--amber)"><i class="ti ti-hand-money"></i> Capital emprestado</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${fmtBRL(empCap)} a receber · juros recebidos ${fmtBRL(empJurosRec)}</div>
+          </div>
+          <input type="checkbox" ${state.patrimonioOpts.incluirEmp?'checked':''} onclick="event.stopPropagation()">
+          <div class="toggle-track"><div class="toggle-thumb"></div></div>
+        </label>
+        <label class="toggle" style="justify-content:space-between;cursor:pointer" onclick="state.patrimonioOpts.incluirImp=!state.patrimonioOpts.incluirImp;renderPage()">
+          <div>
+            <div style="font-size:13px;font-weight:600;color:var(--purple)"><i class="ti ti-apple"></i> Importação Apple</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">Realizado ${fmtBRL(impReal)} · Projetado ${fmtBRL(impProj)}</div>
+          </div>
+          <input type="checkbox" ${state.patrimonioOpts.incluirImp?'checked':''} onclick="event.stopPropagation()">
+          <div class="toggle-track"><div class="toggle-thumb"></div></div>
+        </label>`:'<div style="font-size:12px;color:var(--text3)">Ative o módulo <b>Outros</b> para incluir empréstimos e importação.</div>'}
       </div>
-      <input type="checkbox" ${state.patrimonioOpts.incluirImp?'checked':''} onclick="event.stopPropagation()">
-      <div class="toggle-track"><div class="toggle-thumb"></div></div>
-    </label>`:'<div style="font-size:12px;color:var(--text3)">Ative o módulo <b>Outros</b> para incluir empréstimos e importação.</div>'}
+    </div>
   </div>
-</div>
 
+  <!-- ALOCAÇÃO -->
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between">
+      <div style="font-size:13px;font-weight:700;letter-spacing:-.2px">Alocação do Patrimônio</div>
+      <div style="font-size:11px;color:var(--text2);font-family:var(--mono)">${fmtBRL(totalPatrimonio)}</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:28px">
+      <!-- DONUT -->
+      <div style="position:relative;flex-shrink:0;width:160px;height:160px">
+        <canvas id="allocChart" width="160" height="160"></canvas>
+        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none">
+          <div id="alloc-b-wrap" style="position:relative;display:flex;align-items:center;justify-content:center;width:56px;height:56px">
+            <div style="position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,rgba(var(--accent-r),var(--accent-g),var(--accent-b),.18) 0%,transparent 70%);animation:allocPulse 2.4s ease-in-out infinite"></div>
+            <div style="position:absolute;inset:-4px;border-radius:50%;border:1.5px solid rgba(var(--accent-r),var(--accent-g),var(--accent-b),.2);animation:allocRing 3s linear infinite"></div>
+            <i class="ti ti-currency-bitcoin" style="font-size:28px;color:var(--orange);filter:drop-shadow(0 0 12px rgba(var(--accent-r),var(--accent-g),var(--accent-b),.8));animation:allocB 2.4s ease-in-out infinite;position:relative;z-index:1"></i>
+          </div>
+        </div>
+        <style>
+          @keyframes allocPulse{0%,100%{opacity:.6;transform:scale(.9)}50%{opacity:1;transform:scale(1.1)}}
+          @keyframes allocRing{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+          @keyframes allocB{0%,100%{transform:scale(1);filter:drop-shadow(0 0 8px rgba(var(--accent-r),var(--accent-g),var(--accent-b),.6))}50%{transform:scale(1.08);filter:drop-shadow(0 0 18px rgba(var(--accent-r),var(--accent-g),var(--accent-b),.95))}}
+        </style>
+      </div>
+      <!-- LEGENDA -->
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+        ${allocItems.length===0
+          ?`<div style="color:var(--text3);font-size:13px">Nenhum saldo cadastrado</div>`
+          :allocItems.map(a=>{
+            const pct=totalPatrimonio?(a.valor/totalPatrimonio*100):0;
+            return`<div style="display:flex;align-items:center;gap:10px">
+              <div style="width:32px;height:32px;border-radius:8px;background:${a.color}18;border:1px solid ${a.color}44;display:flex;align-items:center;justify-content:center;flex-shrink:0">
+                <i class="ti ${a.icon}" style="font-size:14px;color:${a.color}"></i>
+              </div>
+              <div style="flex:1;min-width:0">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                  <span style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.label}</span>
+                  <span style="font-size:12px;font-weight:700;font-family:var(--mono);color:${a.color};flex-shrink:0;margin-left:6px">${fmt(pct,1)}%</span>
+                </div>
+                <div style="height:4px;border-radius:2px;background:var(--border);overflow:hidden">
+                  <div style="height:100%;border-radius:2px;background:${a.color};width:${Math.min(100,pct)}%;transition:width .6s cubic-bezier(.4,0,.2,1)"></div>
+                </div>
+                <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--mono)">${fmtBRL(a.valor)}</div>
+              </div>
+            </div>`;
+          }).join('')}
+      </div>
+    </div>
+  </div>
+</div>
 <div class="home-group-grid">
   ${state.modules.crypto?renderHomeGroupCard({type:'crypto',icon:'ti-currency-bitcoin',iconColor:'var(--orange)',title:'Crypto',lucro:cryptoLucro,roi:cryptoROI,bancas:cryptoBancas.length,sparkData:cryptoRecs.map(r=>r.bancaFinalDia||0),accentColor:'#f7931a',onClick:"navigate('banca',state.bancas.find(b=>b.parentFolder==='crypto')?.id||'')",rows:cryptoRows}):''}
   ${state.modules.bet?renderHomeGroupCard({type:'bet',icon:'ti-trophy',iconColor:'var(--blue)',title:'Bet',lucro:betLucro,roi:betROI,bancas:betBancas.length,sparkData:betRecs.map(r=>r.bancaFinalDia||0),accentColor:'#5599ff',onClick:"navigate('banca',state.bancas.find(b=>b.parentFolder==='bet')?.id||'')",rows:betRows}):''}
@@ -1128,7 +1191,7 @@ function renderBanca(){
                 <span style="width:8px;height:8px;border-radius:50%;background:${b.color};flex-shrink:0"></span>
                 <span style="font-size:12px;font-weight:600;color:${isAtual?'var(--blue)':'var(--text)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${b.name}</span>
               </div>
-              <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${l>=0?'var(--green)':'var(--red)'}">${fmtBRL(l*getUsd())}</div>
+              <div style="font-size:18px;font-weight:700;font-family:var(--mono);color:${l>=0?'var(--green)':'var(--red)'}">${fmtBRL(l)}</div>
               <div style="font-size:11px;color:var(--text2);margin-top:2px">${pct(roi)} ROI</div>
             </div>`;
           }).join('')}
@@ -1190,7 +1253,7 @@ function renderMonthCard(banca,m){
       <span class="month-card-roi ${roi>=0?'green':'red'}" style="color:${roi>=0?'var(--green)':'var(--red)'}">${pct(roi)}</span>
       <span class="month-card-badge ${m.status==='open'?'badge-open':'badge-closed'}">${m.status==='open'?'Aberto':'Fechado'}</span>
     </div>
-    <div class="month-card-profit ${lucro<0?'neg':''}" style="margin-top:4px">${banca.type==='crypto'?fmtUSD(lucro):fmtBRL(lucro*getUsd())}</div>
+    <div class="month-card-profit ${lucro<0?'neg':''}" style="margin-top:4px">${banca.type==='crypto'?fmtUSD(lucro):fmtBRL(lucro)}</div>
     ${banca.type==='crypto'?`<div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:1px">${fmtBRL(lucro*getUsd())}</div>`:''}
     ${banca.type==='bet'?`<button onclick="event.stopPropagation();navigate('bet-ops','${banca.id}','${m.id}')" style="margin-top:8px;width:100%;padding:5px;border-radius:6px;background:rgba(85,153,255,.08);border:1px solid rgba(85,153,255,.2);color:var(--blue);font-size:11px;font-weight:600;cursor:pointer;transition:var(--t)" onmouseenter="this.style.background='rgba(85,153,255,.15)'" onmouseleave="this.style.background='rgba(85,153,255,.08)'"><i class="ti ti-table"></i> Operações (${(m.betOperacoes||[]).length})</button>`:''}
   </div>
@@ -1369,7 +1432,7 @@ function aplicarOperacoesNaBanca(bancaId,monthId){
   const hoje=new Date().toISOString().split('T')[0];
   const pctDia=m.bancaInicial?(totalLucro/m.bancaInicial*100):0;
   const rec={id:uid(),data:hoje,tipo:'Operação',bancaValor:m.bancaInicial||0,exchanges:{},
-    bancaFinalDia:bancaFinal,pctDia,lucroUSD:totalLucro/getUsd(),'lucroR$':totalLucro};
+    bancaFinalDia:bancaFinal,pctDia,lucroUSD:totalLucro,'lucroR$':totalLucro};
   if(!m.records)m.records=[];
   m.records.push(rec);
   saveState();
@@ -1406,9 +1469,9 @@ function renderMonth(){
       <div style="flex:1;min-width:180px">
         <div style="font-weight:700;color:var(--purple);margin-bottom:4px">Banca de Operador</div>
         <div style="display:flex;gap:20px;flex-wrap:wrap;font-size:12px;color:var(--text2)">
-          <span>ROI <b style="color:${roiUSD>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${fmtBRL(roiUSD*getUsd())}</b></span>
-          <span>Operador <b style="color:var(--purple);font-family:var(--mono)">${fmtBRL(devido*getUsd())}</b></span>
-          <span>Gestor <b style="color:var(--green);font-family:var(--mono)">${fmtBRL(gestor*getUsd())}</b></span>
+          <span>ROI <b style="color:${roiUSD>=0?'var(--green)':'var(--red)'};font-family:var(--mono)">${isBet?fmtBRL(roiUSD):fmtBRL(roiUSD*getUsd())}</b></span>
+          <span>Operador <b style="color:var(--purple);font-family:var(--mono)">${isBet?fmtBRL(devido):fmtBRL(devido*getUsd())}</b></span>
+          <span>Gestor <b style="color:var(--green);font-family:var(--mono)">${isBet?fmtBRL(gestor):fmtBRL(gestor*getUsd())}</b></span>
           ${!isBet?`<span style="color:var(--text3);font-size:11px">(${fmtUSD(roiUSD)} bruto)</span>`:''}
         </div>
       </div>
@@ -1434,9 +1497,9 @@ function renderMonth(){
 </div>
 ${operadorBanner}
 <div class="cards-grid" style="grid-template-columns:repeat(4,1fr)">
-  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-coin"></i> Banca Inicial</div><div class="stat-card-value">${fmtUSD(m.bancaInicial||0)}</div></div>
-  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro do Período</div><div class="stat-card-value ${lucro>=0?'green':'red'}">${isBet?fmtBRL(lucro*getUsd()):fmtUSD(lucro)}</div>${isBet?'':` <div class="stat-card-sub">${fmtBRL(lucro*getUsd())}</div>`}</div>
-  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-calendar-stats"></i> Lucro Diário Médio</div><div class="stat-card-value ${lucroMedio>=0?'green':'red'}">${isBet?fmtBRL(lucroMedio*getUsd()):fmtUSD(lucroMedio)}</div>${isBet?'':` <div class="stat-card-sub">${fmtBRL(lucroMedio*getUsd())}</div>`}</div>
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-coin"></i> Banca Inicial</div><div class="stat-card-value">${isBet?fmtBRL(m.bancaInicial||0):fmtUSD(m.bancaInicial||0)}</div></div>
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro do Período</div><div class="stat-card-value ${lucro>=0?'green':'red'}">${isBet?fmtBRL(lucro):fmtUSD(lucro)}</div>${isBet?'':` <div class="stat-card-sub">${fmtBRL(lucro*getUsd())}</div>`}</div>
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-calendar-stats"></i> Lucro Diário Médio</div><div class="stat-card-value ${lucroMedio>=0?'green':'red'}">${isBet?fmtBRL(lucroMedio):fmtUSD(lucroMedio)}</div>${isBet?'':` <div class="stat-card-sub">${fmtBRL(lucroMedio*getUsd())}</div>`}</div>
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-percent"></i> ROI</div><div class="stat-card-value ${roi>=0?'green':'red'}">${pct(roi)}</div></div>
 </div>
 <div class="chart-wrap">
@@ -1475,6 +1538,56 @@ ${!recs.length?'<tr><td colspan="100" style="text-align:center;color:var(--text3
 }
 
 function afterRender(){
+  // Donut chart de alocação na home
+  if(state.currentPage==='home'){
+    const canvas=document.getElementById('allocChart');
+    if(canvas){
+      const rate=getUsd();
+      const cryptoBancas=state.bancas.filter(b=>b.parentFolder==='crypto');
+      const betBancas=state.bancas.filter(b=>b.parentFolder==='bet');
+      function bancaSaldoAtual(id){const months=(state.months[id]||[]).slice().sort((a,c)=>a.year*100+a.month-(c.year*100+c.month));if(!months.length)return 0;const last=months[months.length-1];const recs=last.records||[];return recs.length?(recs[recs.length-1].bancaFinalDia||0):(last.bancaInicial||0);}
+      const accent=getComputedStyle(document.documentElement).getPropertyValue('--orange').trim()||'#f7931a';
+      const items=[
+        {v:cryptoBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0)*rate,c:accent},
+        {v:betBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0),c:'#4361ee'},
+        {v:state.banco.contaBRL,c:'#2dc653'},
+        {v:state.banco.reservaBRL,c:'#cc5de8'},
+        {v:(state.banco.contaUSD+state.banco.trezorUSD)*rate,c:'#ffd43b'},
+      ].filter(i=>i.v>0);
+      if(!items.length)return;
+      if(window._allocChart)window._allocChart.destroy();
+      const bg=getComputedStyle(document.documentElement).getPropertyValue('--card').trim()||'#0c0c0c';
+      window._allocChart=new Chart(canvas,{
+        type:'doughnut',
+        data:{datasets:[{
+          data:items.map(i=>i.v),
+          backgroundColor:items.map(i=>i.c),
+          borderWidth:3,
+          borderColor:bg,
+          hoverBorderColor:items.map(i=>i.c),
+          hoverOffset:8,
+        }]},
+        options:{
+          responsive:false,
+          cutout:'76%',
+          plugins:{
+            legend:{display:false},
+            tooltip:{
+              backgroundColor:'#1a1a1a',
+              borderColor:'#333',
+              borderWidth:1,
+              padding:10,
+              callbacks:{
+                label:ctx=>' '+fmtBRL(ctx.raw),
+                title:ctx=>['Banca Crypto','Banca Bet','Caixa BRL','Reserva Emergência','Reserva USD'][ctx[0].dataIndex]||''
+              }
+            }
+          },
+          animation:{duration:700,easing:'easeInOutQuart'}
+        }
+      });
+    }
+  }
   // Draw chart if on month page
   if(state.currentPage==='month'){
     const months=state.months[state.currentBancaId]||[];
