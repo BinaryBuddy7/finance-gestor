@@ -921,8 +921,9 @@ function renderHome(){
   const cryptoSaldoUSD=cryptoBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0);
   const betSaldoBRL=betBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0);
 
-  // Totals
-  const totalLucro=cryptoLucro+betLucro;
+  const rate=getUsd();
+  // Totals — cryptoLucro em USD, betLucro já em BRL
+  const totalLucroBRL=cryptoLucro*rate+betLucro;
 
   // Empréstimos + Outros
   const empCap=state.emprestimos.reduce((s,e)=>s+(e.capital||0),0);
@@ -946,7 +947,6 @@ function renderHome(){
   const dEmpPago=dEmp.filter(e=>e.tipo==='Saída'&&e.pago).reduce((s,e)=>s+(parseFloat(e.valorReal||e.valorEsperado)||0),0);
   const dPesPago=dPes.filter(e=>e.tipo==='Saída'&&e.pago).reduce((s,e)=>s+(parseFloat(e.valorReal||e.valorEsperado)||0),0);
 
-  const rate=getUsd();
   const base=(state.banco.contaBRL+state.banco.reservaBRL+betSaldoBRL)+(state.banco.contaUSD+state.banco.trezorUSD+cryptoSaldoUSD)*rate;
   const withEmp=state.patrimonioOpts.incluirEmp?empCap:0;
   const withImp=state.patrimonioOpts.incluirImp?impReal+impProj:0;
@@ -960,6 +960,7 @@ function renderHome(){
     {label:'Caixa BRL',icon:'ti-building-bank',valor:state.banco.contaBRL,color:'#2dc653'},
     {label:'Reserva Emergência',icon:'ti-shield',valor:state.banco.reservaBRL,color:'#cc5de8'},
     {label:'Reserva USD',icon:'ti-currency-dollar',valor:(state.banco.contaUSD+state.banco.trezorUSD)*rate,color:'#ffd43b'},
+    ...(state.modules.outros&&empCap>0?[{label:'Capital Emprestado',icon:'ti-hand-money',valor:empCap,color:'#20c997'}]:[]),
   ].filter(a=>a.valor>0);
 
   return`
@@ -976,7 +977,7 @@ function renderHome(){
         <div class="stat-card-value" style="color:var(--orange)">${fmtBRL(totalPatrimonio)}</div>
         ${(state.patrimonioOpts.incluirEmp||state.patrimonioOpts.incluirImp)?`<div class="stat-card-sub" style="color:var(--orange)">+extras incluídos</div>`:''}
       </div>
-      <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro total</div><div class="stat-card-value ${totalLucro>=0?'green':'red'}">${fmtBRL(totalLucro*rate)}</div></div>
+      <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro total</div><div class="stat-card-value ${totalLucroBRL>=0?'green':'red'}">${fmtBRL(totalLucroBRL)}</div></div>
     </div>
     <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:14px 18px">
       <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.7px;color:var(--text3);margin-bottom:12px">Incluir no patrimônio</div>
@@ -1547,12 +1548,14 @@ function afterRender(){
       const betBancas=state.bancas.filter(b=>b.parentFolder==='bet');
       function bancaSaldoAtual(id){const months=(state.months[id]||[]).slice().sort((a,c)=>a.year*100+a.month-(c.year*100+c.month));if(!months.length)return 0;const last=months[months.length-1];const recs=last.records||[];return recs.length?(recs[recs.length-1].bancaFinalDia||0):(last.bancaInicial||0);}
       const accent=getComputedStyle(document.documentElement).getPropertyValue('--orange').trim()||'#f7931a';
+      const empCapChart=state.emprestimos.reduce((s,e)=>s+(e.capital||0),0);
       const items=[
         {v:cryptoBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0)*rate,c:accent},
         {v:betBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0),c:'#4361ee'},
         {v:state.banco.contaBRL,c:'#2dc653'},
         {v:state.banco.reservaBRL,c:'#cc5de8'},
         {v:(state.banco.contaUSD+state.banco.trezorUSD)*rate,c:'#ffd43b'},
+        ...(state.modules.outros&&empCapChart>0?[{v:empCapChart,c:'#20c997'}]:[]),
       ].filter(i=>i.v>0);
       if(!items.length)return;
       if(window._allocChart)window._allocChart.destroy();
