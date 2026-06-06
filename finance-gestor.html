@@ -960,7 +960,8 @@ function renderHome(){
     {label:'Caixa BRL',icon:'ti-building-bank',valor:state.banco.contaBRL,color:'#2dc653'},
     {label:'Reserva Emergência',icon:'ti-shield',valor:state.banco.reservaBRL,color:'#cc5de8'},
     {label:'Reserva USD',icon:'ti-currency-dollar',valor:(state.banco.contaUSD+state.banco.trezorUSD)*rate,color:'#ffd43b'},
-    ...(state.modules.outros&&empCap>0?[{label:'Capital Emprestado',icon:'ti-hand-money',valor:empCap,color:'#20c997'}]:[]),
+    ...(state.modules.outros&&empCap>0?[{label:'Capital Emprestado',icon:'ti-cash',valor:empCap,color:'#20c997'}]:[]),
+    ...(state.modules.outros&&(impReal+impProj)>0?[{label:'Importação Apple',icon:'ti-apple',valor:impReal+impProj,color:'#a8a8a8',note:`Realizado ${fmtBRL(impReal)} · Projetado ${fmtBRL(impProj)}`}]:[]),
   ].filter(a=>a.valor>0);
 
   return`
@@ -1044,7 +1045,7 @@ function renderHome(){
                 <div style="height:4px;border-radius:2px;background:var(--border);overflow:hidden">
                   <div style="height:100%;border-radius:2px;background:${a.color};width:${Math.min(100,pct)}%;transition:width .6s cubic-bezier(.4,0,.2,1)"></div>
                 </div>
-                <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--mono)">${fmtBRL(a.valor)}</div>
+                <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--mono);display:flex;align-items:center;gap:6px;flex-wrap:wrap">${fmtBRL(a.valor)}${a.note?`<span style="font-family:var(--font);background:rgba(32,201,151,.1);border:1px solid rgba(32,201,151,.2);color:#20c997;border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;white-space:nowrap">${a.note}</span>`:''}</div>
               </div>
             </div>`;
           }).join('')}
@@ -1556,6 +1557,7 @@ function afterRender(){
         {v:state.banco.reservaBRL,c:'#cc5de8'},
         {v:(state.banco.contaUSD+state.banco.trezorUSD)*rate,c:'#ffd43b'},
         ...(state.modules.outros&&empCapChart>0?[{v:empCapChart,c:'#20c997'}]:[]),
+        ...(()=>{const iv=state.importacao.filter(p=>p.status==='Vendido').reduce((s,p)=>s+(p.lucro||0),0)+state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+((p.vendaProjetada||0)-(p.custo||0))*rate,0);return state.modules.outros&&iv>0?[{v:iv,c:'#a8a8a8'}]:[];})(),
       ].filter(i=>i.v>0);
       if(!items.length)return;
       if(window._allocChart)window._allocChart.destroy();
