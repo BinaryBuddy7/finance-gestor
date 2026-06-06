@@ -638,7 +638,7 @@ function renderSidebar(){
 
   // Crypto folder
   if(state.modules.crypto){
-    const cryptoFolder=navFolder('crypto','₿ Crypto','ti-currency-bitcoin');
+    const cryptoFolder=navFolder('crypto','Crypto','ti-currency-bitcoin',()=>navigate('group','crypto'));
     const cryptoBancas=state.bancas.filter(b=>b.parentFolder==='crypto');
     cryptoBancas.forEach(b=>{
       cryptoFolder._children.appendChild(navItem({icon:'ti-wallet',label:b.name,id:b.id,color:b.color,active:state.currentPage==='banca'&&state.currentBancaId===b.id,onClick:()=>navigate('banca',b.id)}));
@@ -649,7 +649,7 @@ function renderSidebar(){
 
   // Bet folder
   if(state.modules.bet){
-    const betFolder=navFolder('bet','🎯 Bet','ti-dice');
+    const betFolder=navFolder('bet','Bet','ti-dice',()=>navigate('group','bet'));
     const betBancas=state.bancas.filter(b=>b.parentFolder==='bet');
     betBancas.forEach(b=>{
       betFolder._children.appendChild(navItem({icon:'ti-trophy',label:b.name,id:b.id,color:b.color,active:state.currentPage==='banca'&&state.currentBancaId===b.id,onClick:()=>navigate('banca',b.id)}));
@@ -660,7 +660,7 @@ function renderSidebar(){
 
   // Outras folder
   if(state.modules.outros){
-    const outrasFolder=navFolder('outras','📁 Outros','ti-folder');
+    const outrasFolder=navFolder('outras','Outros','ti-folder');
     outrasFolder._children.appendChild(navItem({icon:'ti-hand-money',label:'Empréstimos',id:'emprestimos',active:state.currentPage==='emprestimos',onClick:()=>navigate('emprestimos'),noActions:true}));
     outrasFolder._children.appendChild(navItem({icon:'ti-apple',label:'Importação',id:'importacao',active:state.currentPage==='importacao',onClick:()=>navigate('importacao'),noActions:true}));
     nav.appendChild(outrasFolder);
@@ -668,7 +668,7 @@ function renderSidebar(){
 
   // Despesas folder
   if(state.modules.despesas){
-    const despFolder=navFolder('despesas','📂 Despesas','ti-report-money');
+    const despFolder=navFolder('despesas','Despesas','ti-report-money');
     despFolder._children.appendChild(navItem({icon:'ti-building',label:'Empresarial',id:'desp-emp',active:state.currentPage==='despesas-empresarial',onClick:()=>navigate('despesas-empresarial'),noActions:true}));
     despFolder._children.appendChild(navItem({icon:'ti-user',label:'Pessoal',id:'desp-pes',active:state.currentPage==='despesas-pessoal',onClick:()=>navigate('despesas-pessoal'),noActions:true}));
     nav.appendChild(despFolder);
@@ -696,7 +696,7 @@ function navItem({icon,label,id,color,active,onClick,noActions}){
   return el;
 }
 
-function navFolder(key,label,icon){
+function navFolder(key,label,icon,onHeaderClick){
   const wrap=document.createElement('div');
   const isOpen=state.folders[key]?.open!==false;
 
@@ -704,6 +704,7 @@ function navFolder(key,label,icon){
   header.className='nav-folder-header'+(isOpen?' open':'');
   header.innerHTML=`<i class="ti ${icon}" style="font-size:14px;min-width:18px"></i><span style="flex:1">${label}</span><i class="ti ti-chevron-right ti-chevron"></i>`;
   header.addEventListener('click',()=>{
+    if(onHeaderClick)onHeaderClick();
     if(!state.folders[key])state.folders[key]={};
     state.folders[key].open=!state.folders[key].open;
     renderSidebar();
@@ -802,6 +803,8 @@ function navigate(page,bancaId,monthId){
     const months=state.months[state.currentBancaId]||[];
     const m=months.find(m=>m.id===state.currentMonthId);
     bc.textContent=`${b?.name||''} › ${m?.name||''}`;
+  }else if(page==='group'){
+    bc.textContent=bancaId==='crypto'?'₿ Crypto':'🎯 Bet';
   }else if(page==='bet-ops'){
     const b=state.bancas.find(b=>b.id===state.currentBancaId);
     const months=state.months[state.currentBancaId]||[];
@@ -815,6 +818,7 @@ function renderPage(){
   const p=state.currentPage;
   if(p==='home')el.innerHTML=renderHome();
   else if(p==='banca')el.innerHTML=renderBanca();
+  else if(p==='group')el.innerHTML=renderGroup();
   else if(p==='month')el.innerHTML=renderMonth();
   else if(p==='bet-ops')el.innerHTML=renderBetOps();
   else if(p==='banco')el.innerHTML=renderBanco();
@@ -1169,6 +1173,70 @@ function simulateData(){
 // ============================================================
 // BANCA PAGE (month cards)
 // ============================================================
+function renderGroup(){
+  const type=state.currentBancaId; // reutilizamos currentBancaId para guardar 'crypto'|'bet'
+  const bancas=state.bancas.filter(b=>b.parentFolder===type);
+  const isBet=type==='bet';
+  const rate=getUsd();
+  const totalLucro=bancas.reduce((s,b)=>s+calcBancaLucro(b.id),0);
+  const totalSaldo=bancas.reduce((s,b)=>{
+    const months=(state.months[b.id]||[]).slice().sort((a,c)=>a.year*100+a.month-(c.year*100+c.month));
+    if(!months.length)return s;
+    const last=months[months.length-1];
+    const recs=last.records||[];
+    return s+(recs.length?recs[recs.length-1].bancaFinalDia||0:last.bancaInicial||0);
+  },0);
+
+  const cards=bancas.map(b=>{
+    const lucro=calcBancaLucro(b.id);
+    const roi=calcBancaROI(b.id);
+    const isActive=state.currentPage==='group'&&state.currentBancaId===type;
+    return`<div onclick="navigate('banca','${b.id}')" style="flex:1;min-width:200px;padding:18px 20px;background:var(--card2);border:1px solid ${b.color}33;border-radius:var(--radius);cursor:pointer;transition:border-color var(--t),transform var(--t),box-shadow var(--t);position:relative;overflow:hidden" onmouseenter="this.style.borderColor='${b.color}99';this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 28px rgba(0,0,0,.4)'" onmouseleave="this.style.borderColor='${b.color}33';this.style.transform='none';this.style.boxShadow='none'">
+      <div style="position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle,${b.color}18 0%,transparent 70%);pointer-events:none"></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+        <div style="width:10px;height:10px;border-radius:50%;background:${b.color};box-shadow:0 0 8px ${b.color}88;flex-shrink:0"></div>
+        <span style="font-weight:700;font-size:14px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${b.color}">${b.name}</span>
+        ${b.isOperator?`<span style="font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(157,113,255,.12);color:var(--purple);border:1px solid rgba(157,113,255,.25);font-weight:700">OP ${b.split||0}%</span>`:`<span style="font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(0,201,122,.1);color:var(--green);border:1px solid rgba(0,201,122,.2);font-weight:700">Pessoal</span>`}
+      </div>
+      <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:${lucro>=0?'var(--green)':'var(--red)'};letter-spacing:-.3px;margin-bottom:4px">${isBet?fmtBRL(lucro):fmtUSD(lucro)}</div>
+      <div style="font-size:12px;color:var(--text2)">${pct(roi)} ROI · ${state.months[b.id]?.length||0} ${(state.months[b.id]?.length||0)===1?'mês':'meses'}</div>
+    </div>`;
+  }).join('');
+
+  return`
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <div>
+    <div class="page-title">${isBet?'🎯 Bet':'₿ Crypto'}</div>
+    <div class="page-subtitle">${bancas.length} ${bancas.length===1?'banca':'bancas'} · ${isBet?fmtBRL(totalLucro)+' lucro total':fmtUSD(totalLucro)+' lucro total'}</div>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="showAddBancaModal('${type}')"><i class="ti ti-plus"></i> Nova banca</button>
+</div>
+
+<!-- RESUMO -->
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:600px;margin-bottom:28px">
+  <div class="stat-card">
+    <div class="stat-card-label"><i class="ti ti-layers"></i> Bancas</div>
+    <div class="stat-card-value">${bancas.length}</div>
+    <div class="stat-card-sub">${bancas.filter(b=>!b.isOperator).length} própria · ${bancas.filter(b=>b.isOperator).length} gerenciada${bancas.filter(b=>b.isOperator).length!==1?'s':''}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro total</div>
+    <div class="stat-card-value ${totalLucro>=0?'green':'red'}">${isBet?fmtBRL(totalLucro):fmtUSD(totalLucro)}</div>
+    ${!isBet?`<div class="stat-card-sub">≈${fmtBRL(totalLucro*rate)}</div>`:''}
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-label"><i class="ti ti-wallet"></i> Saldo total</div>
+    <div class="stat-card-value" style="color:var(--orange)">${isBet?fmtBRL(totalSaldo):fmtUSD(totalSaldo)}</div>
+    ${!isBet?`<div class="stat-card-sub">≈${fmtBRL(totalSaldo*rate)}</div>`:''}
+  </div>
+</div>
+
+<!-- BANCAS -->
+<div style="display:flex;flex-wrap:wrap;gap:14px">
+  ${cards||`<div style="color:var(--text3);font-size:13px;padding:32px;text-align:center;border:1px dashed var(--border2);border-radius:var(--radius);width:100%">Nenhuma banca cadastrada. Clique em "+ Nova banca" para começar.</div>`}
+</div>`;
+}
+
 function renderBanca(){
   const banca=state.bancas.find(b=>b.id===state.currentBancaId);
   if(!banca)return '<div class="page-header"><div class="page-title">Banca não encontrada</div></div>';
@@ -1209,7 +1277,7 @@ function renderBanca(){
       <span class="color-dot" style="width:12px;height:12px;background:${banca.color}"></span>
       ${banca.name}
     </div>
-    <div class="page-subtitle">${banca.type==='crypto'?'Banca Crypto':'Banca Bet'} · ${months.length} meses</div>
+    <div class="page-subtitle">${banca.type==='crypto'?'Banca Crypto':'Banca Bet'} · ${months.length} ${months.length===1?'mês':'meses'}</div>
   </div>
   <div style="display:flex;gap:8px">
     <button class="btn btn-secondary btn-sm" onclick="toggleSortMonths()"><i class="ti ti-arrows-sort"></i> Ordenar</button>
