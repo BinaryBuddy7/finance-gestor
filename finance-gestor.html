@@ -352,8 +352,12 @@ const state = {
     contaBRL: 0,
     contaUSD: 0,
     reservaBRL: 0,
-    trezorUSD: 0
+    trezorUSD: 0,
+    bancos: [],
+    cryptoHoldings: [],
+    investimentos: []
   },
+  bancoTab: 'contas',
   bancoVis: { contaBRL: true, reservaBRL: true, reservaUSD: true },
   claudeApiKey: '',
   theme: 'laranja',
@@ -939,7 +943,9 @@ function renderHome(){
     return s+(e.parcelas||[]).filter(p=>p.pago).length*jurosP;
   },0);
   const impReal=state.importacao.filter(p=>p.status==='Vendido').reduce((s,p)=>s+(p.lucro||0),0);
-  const impProj=state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+((p.vendaProjetada||0)-(p.custo||0))*getUsd(),0);
+  const impCapital=state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+(p.custo||0),0);
+  const impLucroProj=state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+(p.vendaProjetada||0)-(p.custo||0),0);
+  const impProj=state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+(p.vendaProjetada||p.custo||0),0);
 
   // Despesas
   const curME=getCurrentDespMonth('empresarial');
@@ -951,7 +957,7 @@ function renderHome(){
   const dEmpPago=dEmp.filter(e=>e.tipo==='Saída'&&e.pago).reduce((s,e)=>s+(parseFloat(e.valorReal||e.valorEsperado)||0),0);
   const dPesPago=dPes.filter(e=>e.tipo==='Saída'&&e.pago).reduce((s,e)=>s+(parseFloat(e.valorReal||e.valorEsperado)||0),0);
 
-  const base=(state.banco.contaBRL+state.banco.reservaBRL+betSaldoBRL)+(state.banco.contaUSD+state.banco.trezorUSD+cryptoSaldoUSD)*rate;
+  const base=(getBancoBRL()+state.banco.reservaBRL+betSaldoBRL+getCryptoHoldingsBRL()+getInvestimentosBRL())+(state.banco.contaUSD+state.banco.trezorUSD+cryptoSaldoUSD)*rate;
   const withEmp=state.patrimonioOpts.incluirEmp?empCap:0;
   const withImp=state.patrimonioOpts.incluirImp?impReal+impProj:0;
   const totalPatrimonio=base+withEmp+withImp;
@@ -961,11 +967,13 @@ function renderHome(){
   const allocItems=[
     {label:'Banca Crypto',icon:'ti-currency-bitcoin',valor:cryptoSaldoUSD*rate,color:themeAccent},
     {label:'Banca Bet',icon:'ti-trophy',valor:betSaldoBRL,color:'#4361ee'},
-    {label:'Caixa BRL',icon:'ti-building-bank',valor:state.banco.contaBRL,color:'#2dc653'},
+    {label:'Contas BRL',icon:'ti-building-bank',valor:getBancoBRL(),color:'#2dc653'},
     {label:'Reserva Emergência',icon:'ti-shield',valor:state.banco.reservaBRL,color:'#cc5de8'},
     {label:'Reserva USD',icon:'ti-currency-dollar',valor:(state.banco.contaUSD+state.banco.trezorUSD)*rate,color:'#ffd43b'},
+    ...(getCryptoHoldingsBRL()>0?[{label:'Crypto Pessoal',icon:'ti-currency-bitcoin',valor:getCryptoHoldingsBRL(),color:'#f7931a'}]:[]),
+    ...(getInvestimentosBRL()>0?[{label:'Investimentos',icon:'ti-chart-bar',valor:getInvestimentosBRL(),color:'#4cc9f0'}]:[]),
     ...(state.modules.outros&&empCap>0?[{label:'Capital Emprestado',icon:'ti-cash',valor:empCap,color:'#20c997'}]:[]),
-    ...(state.modules.outros&&(impReal+impProj)>0?[{label:'Importação Apple',icon:'ti-apple',valor:impReal+impProj,color:'#a8a8a8',note:`Realizado ${fmtBRL(impReal)} · Projetado ${fmtBRL(impProj)}`}]:[]),
+    ...(state.modules.outros&&(impReal+impProj)>0?[{label:'Importação Apple',icon:'ti-apple',valor:impReal+impProj,color:'#a8a8a8',note:`Realizado ${fmtBRL(impReal)} · Capital ${fmtBRL(impCapital)} · Lucro proj. ${fmtBRL(impLucroProj)}`}]:[]),
   ].filter(a=>a.valor>0);
 
   return`
@@ -999,7 +1007,7 @@ function renderHome(){
         <label class="toggle" style="justify-content:space-between;cursor:pointer" onclick="state.patrimonioOpts.incluirImp=!state.patrimonioOpts.incluirImp;renderPage()">
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--purple)"><i class="ti ti-apple"></i> Importação Apple</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">Realizado ${fmtBRL(impReal)} · Projetado ${fmtBRL(impProj)}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">Realizado ${fmtBRL(impReal)} · Capital ${fmtBRL(impCapital)} · Lucro proj. ${fmtBRL(impLucroProj)}</div>
           </div>
           <input type="checkbox" ${state.patrimonioOpts.incluirImp?'checked':''} onclick="event.stopPropagation()">
           <div class="toggle-track"><div class="toggle-thumb"></div></div>
@@ -1082,7 +1090,7 @@ function renderHome(){
             <i class="ti ti-chevron-right" style="color:var(--text3);font-size:12px"></i>
           </div>
           <div class="font-mono" style="font-size:18px;font-weight:700;color:var(--purple)">${fmtBRL(impReal+impProj)}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">Realizado <b style="color:var(--green)">${fmtBRL(impReal)}</b> · Projetado <b style="color:var(--purple)">${fmtBRL(impProj)}</b></div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">Realizado <b style="color:var(--green)">${fmtBRL(impReal)}</b> · Capital <b style="color:var(--amber)">${fmtBRL(impCapital)}</b> · Lucro proj. <b style="color:var(--purple)">${fmtBRL(impLucroProj)}</b></div>
         </div>
       </div>
     </div>
@@ -1147,13 +1155,37 @@ function simulateData(){
       {id:uid(),nome:'Ana Pereira',descricao:'Capital para operações',capital:3500,jurosPct:3,parcelaMensal:350,vencimento:'2026-12-01',parcelas:[{id:1,mes:'Jun/26',pago:false},{id:2,mes:'Jul/26',pago:false},{id:3,mes:'Ago/26',pago:false},{id:4,mes:'Set/26',pago:false},{id:5,mes:'Out/26',pago:false},{id:6,mes:'Nov/26',pago:false},{id:7,mes:'Dez/26',pago:false}]},
     ];
   }
+  // Banco: bancos, crypto, investimentos
+  if(!state.banco.bancos||!state.banco.bancos.length){
+    state.banco.bancos=[
+      {id:uid(),nome:'Nubank',saldo:4200},
+      {id:uid(),nome:'Itaú',saldo:1800},
+      {id:uid(),nome:'Inter',saldo:600},
+    ];
+    state.banco.contaBRL=0;
+  }
+  if(!state.banco.cryptoHoldings||!state.banco.cryptoHoldings.length){
+    state.banco.cryptoHoldings=[
+      {id:uid(),symbol:'BTC',qty:0.05,priceUSD:100000,priceAt:''},
+      {id:uid(),symbol:'ETH',qty:0.8,priceUSD:3800,priceAt:''},
+    ];
+  }
+  if(!state.banco.investimentos||!state.banco.investimentos.length){
+    state.banco.investimentos=[
+      {id:uid(),ticker:'ITSA4',tipo:'Ação',nome:'Itaúsa',qty:100,precoMedio:9.80,precoAtual:10.50,setor:'Financeiro',moeda:'BRL'},
+      {id:uid(),ticker:'HGLG11',tipo:'FII',nome:'CSHG Logística',qty:20,precoMedio:155,precoAtual:162,ultimoDividendo:1.20,pvp:0.97,moeda:'BRL'},
+      {id:uid(),ticker:'BOVA11',tipo:'ETF',nome:'iShares Ibovespa',qty:15,precoMedio:115,precoAtual:120,benchmark:'Ibovespa',moeda:'BRL'},
+      {id:uid(),ticker:'CDB-NU',tipo:'Renda Fixa',nome:'CDB Nubank',tipoRF:'CDB',emissor:'Nubank',indexador:'CDI',taxa:110,vencimento:'2027-06-01',valorInvestido:5000,valorAtual:5320,moeda:'BRL'},
+      {id:uid(),ticker:'TD-IPCA',tipo:'Tesouro Direto',nome:'Tesouro IPCA+ 2029',tipoTD:'Tesouro IPCA+',taxa:5.82,vencimento:'2029-05-15',valorInvestido:3000,valorAtual:3185,moeda:'BRL'},
+    ];
+  }
   // Importacao
   if(!state.importacao.length){
     state.importacao=[
-      {id:uid(),nome:'iPhone 16 Pro Max 256GB',custo:1100,vendaProjetada:1800,status:'Em estoque'},
-      {id:uid(),nome:'MacBook Air M3',custo:1300,vendaProjetada:2100,status:'Em trânsito'},
-      {id:uid(),nome:'iPhone 15 Pro',custo:900,vendaProjetada:1500,status:'Vendido',lucro:(1500-900)*5.75},
-      {id:uid(),nome:'MacBook Pro M3 Pro',custo:2200,vendaProjetada:3500,status:'Comprado'},
+      {id:uid(),nome:'iPhone 16 Pro Max 256GB',custo:6800,vendaProjetada:11000,status:'Em estoque'},
+      {id:uid(),nome:'MacBook Air M3',custo:8000,vendaProjetada:13000,status:'Em trânsito'},
+      {id:uid(),nome:'iPhone 15 Pro',custo:5500,vendaProjetada:9000,status:'Vendido',lucro:9000-5500},
+      {id:uid(),nome:'MacBook Pro M3 Pro',custo:13500,vendaProjetada:21000,status:'Comprado'},
     ];
   }
   // Despesas
@@ -1621,11 +1653,13 @@ function afterRender(){
       const items=[
         {v:cryptoBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0)*rate,c:accent},
         {v:betBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0),c:'#4361ee'},
-        {v:state.banco.contaBRL,c:'#2dc653'},
+        {v:getBancoBRL(),c:'#2dc653'},
         {v:state.banco.reservaBRL,c:'#cc5de8'},
         {v:(state.banco.contaUSD+state.banco.trezorUSD)*rate,c:'#ffd43b'},
+        ...(getCryptoHoldingsBRL()>0?[{v:getCryptoHoldingsBRL(),c:'#f7931a'}]:[]),
+        ...(getInvestimentosBRL()>0?[{v:getInvestimentosBRL(),c:'#4cc9f0'}]:[]),
         ...(state.modules.outros&&empCapChart>0?[{v:empCapChart,c:'#20c997'}]:[]),
-        ...(()=>{const iv=state.importacao.filter(p=>p.status==='Vendido').reduce((s,p)=>s+(p.lucro||0),0)+state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+((p.vendaProjetada||0)-(p.custo||0))*rate,0);return state.modules.outros&&iv>0?[{v:iv,c:'#a8a8a8'}]:[];})(),
+        ...(()=>{const iv=state.importacao.filter(p=>p.status==='Vendido').reduce((s,p)=>s+(p.lucro||0),0)+state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+(p.vendaProjetada||p.custo||0),0);return state.modules.outros&&iv>0?[{v:iv,c:'#a8a8a8'}]:[];})(),
       ].filter(i=>i.v>0);
       if(!items.length)return;
       if(window._allocChart)window._allocChart.destroy();
@@ -1705,171 +1739,543 @@ function afterRender(){
 // ============================================================
 // BANCO E RESERVA
 // ============================================================
+// ── BANCO HELPERS ──
+function getBancoBRL(){
+  const bancos=state.banco.bancos||[];
+  if(bancos.length) return bancos.reduce((s,b)=>s+(b.saldo||0),0);
+  return state.banco.contaBRL||0;
+}
+function getCryptoHoldingsBRL(){
+  const rate=getUsd();
+  return (state.banco.cryptoHoldings||[]).reduce((s,h)=>s+(h.qty||0)*(h.priceUSD||0)*rate,0);
+}
+function getInvestimentosBRL(){
+  const rate=getUsd();
+  return (state.banco.investimentos||[]).reduce((s,i)=>s+invValBRL(i,rate),0);
+}
+function invValBRL(i,rate){
+  if(i.tipo==='Renda Fixa'||i.tipo==='Tesouro Direto') return i.valorAtual||i.valorInvestido||0;
+  if(i.tipo==='Outro') return i.valorAtual||0;
+  const p=i.precoAtual||i.precoMedio||i.precoUnit||0;
+  const v=(i.qty||0)*p;
+  return i.moeda==='USD'?v*rate:v;
+}
+
+// ── BANCO PAGE ──
 function renderBanco(){
   const b=state.banco;
-  const vis=state.bancoVis||{contaBRL:true,reservaBRL:true,reservaUSD:true};
   const rate=getUsd();
+  const tab=state.bancoTab||'contas';
+  const contaBRL=getBancoBRL();
   const reservaUSD=b.contaUSD+b.trezorUSD;
-  const totalBRL=b.contaBRL+b.reservaBRL;
   const totalUSDemBRL=reservaUSD*rate;
-  const total=totalBRL+totalUSDemBRL;
-  const pctBRL=total?Math.round(totalBRL/total*100):0;
-  const pctUSD=100-pctBRL;
+  const cryptoBRL=getCryptoHoldingsBRL();
+  const invBRL=getInvestimentosBRL();
+  const total=contaBRL+b.reservaBRL+totalUSDemBRL+cryptoBRL+invBRL;
 
-  const cardContaBRL=vis.contaBRL?`
-  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden;cursor:pointer;transition:border-color var(--t),transform var(--t)" onclick="editBancoField('contaBRL','R$')" onmouseenter="this.style.borderColor='rgba(0,201,122,.35)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='var(--border)';this.style.transform='none'">
-    <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:var(--green);border-radius:3px 0 0 3px"></div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:32px;height:32px;border-radius:8px;background:rgba(0,201,122,.1);display:flex;align-items:center;justify-content:center"><i class="ti ti-building-bank" style="color:var(--green);font-size:16px"></i></div>
-        <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text)">Conta BRL ${bancoTip('Dinheiro para giro')}</div>
-          <div style="font-size:10px;color:var(--text3)">Giro diário</div>
-        </div>
+  return `
+<div style="margin-bottom:20px;max-width:960px">
+  <div class="page-title">Banco e Reserva</div>
+  <div class="page-subtitle">Contas, reservas, crypto pessoal e investimentos</div>
+</div>
+<div style="background:linear-gradient(135deg,var(--hero-bg) 0%,rgba(0,0,0,0) 60%);border:1px solid var(--hero-border);border-radius:16px;padding:24px 28px;margin-bottom:20px;max-width:960px;position:relative;overflow:hidden">
+  <div style="position:absolute;top:0;right:0;width:180px;height:180px;background:radial-gradient(circle,var(--hero-glow) 0%,transparent 70%);pointer-events:none"></div>
+  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="ti ti-crown" style="color:var(--orange)"></i> Patrimônio — Contas & Reservas</div>
+  <div style="font-size:36px;font-weight:700;font-family:var(--mono);color:var(--orange);letter-spacing:-.5px;margin-bottom:4px">${fmtBRL(total)}</div>
+  <div style="font-size:13px;color:var(--text2);margin-bottom:16px">USD/BRL: <b style="color:var(--amber)">R$${fmt(rate)}</b></div>
+  <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:12px">
+    <span><i class="ti ti-building-bank" style="color:var(--green)"></i> <b style="color:var(--green);font-family:var(--mono)">${fmtBRL(contaBRL)}</b> contas</span>
+    <span style="color:var(--border2)">·</span>
+    <span><i class="ti ti-shield" style="color:var(--purple)"></i> <b style="color:var(--purple);font-family:var(--mono)">${fmtBRL(b.reservaBRL)}</b> reserva</span>
+    <span style="color:var(--border2)">·</span>
+    <span><i class="ti ti-currency-dollar" style="color:var(--amber)"></i> <b style="color:var(--amber);font-family:var(--mono)">${fmtUSD(reservaUSD)}</b> USD</span>
+    ${cryptoBRL>0?`<span style="color:var(--border2)">·</span><span><i class="ti ti-currency-bitcoin" style="color:#f7931a"></i> <b style="color:#f7931a;font-family:var(--mono)">${fmtBRL(cryptoBRL)}</b> crypto</span>`:''}
+    ${invBRL>0?`<span style="color:var(--border2)">·</span><span><i class="ti ti-chart-bar" style="color:#4cc9f0"></i> <b style="color:#4cc9f0;font-family:var(--mono)">${fmtBRL(invBRL)}</b> invest.</span>`:''}
+  </div>
+</div>
+<div class="tabs" style="max-width:960px;margin-bottom:16px">
+  <div class="tab ${tab==='contas'?'active':''}" onclick="switchBancoTab('contas')"><i class="ti ti-building-bank"></i> Contas</div>
+  <div class="tab ${tab==='crypto'?'active':''}" onclick="switchBancoTab('crypto')"><i class="ti ti-currency-bitcoin"></i> Crypto</div>
+  <div class="tab ${tab==='investimentos'?'active':''}" onclick="switchBancoTab('investimentos')"><i class="ti ti-chart-bar"></i> Investimentos</div>
+</div>
+<div style="max-width:960px">
+${tab==='contas'?renderBancoTabContas(b,rate,contaBRL,total):tab==='crypto'?renderBancoTabCrypto():renderBancoTabInvestimentos()}
+</div>`;
+}
+
+function switchBancoTab(tab){state.bancoTab=tab;renderPage();}
+
+function renderBancoTabContas(b,rate,contaBRL,total){
+  const reservaUSD=b.contaUSD+b.trezorUSD;
+  const totalUSDemBRL=reservaUSD*rate;
+  const bancos=b.bancos&&b.bancos.length?b.bancos:b.contaBRL>0?[{id:'legacy',nome:'Conta Geral',saldo:b.contaBRL}]:[];
+  const bankCors={'Nubank':'#820ad1','Itaú':'#ec7000','Bradesco':'#cc0000','Santander':'#ea1d25','Caixa':'#005baa','Banco do Brasil':'#f8b400','Inter':'#ff6a00','C6 Bank':'#555','BTG Pactual':'#004b8d','XP':'#4cc9f0','Sicoob':'#0a7c3e','Sicredi':'#007c42'};
+  return `
+<div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:14px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:36px;height:36px;border-radius:9px;background:rgba(0,201,122,.1);display:flex;align-items:center;justify-content:center"><i class="ti ti-building-bank" style="color:var(--green);font-size:18px"></i></div>
+      <div>
+        <div style="font-size:13px;font-weight:700;color:var(--text)">Contas Bancárias</div>
+        <div style="font-size:11px;color:var(--text3)">Total: <b style="color:var(--green);font-family:var(--mono)">${fmtBRL(contaBRL)}</b></div>
       </div>
-      <i class="ti ti-pencil" style="font-size:13px;color:var(--text3)"></i>
     </div>
-    <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:var(--green);letter-spacing:-.3px">${fmtBRL(b.contaBRL)}</div>
-    <div style="margin-top:8px;height:3px;border-radius:2px;background:var(--border)"><div style="height:100%;border-radius:2px;background:var(--green);width:${total?Math.min(100,b.contaBRL/total*100):0}%"></div></div>
-    <div style="font-size:10px;color:var(--text3);margin-top:5px">${total?fmt(b.contaBRL/total*100,1):0}% do patrimônio</div>
-  </div>`:'';
-
-  const cardReservaBRL=vis.reservaBRL?`
-  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden;cursor:pointer;transition:border-color var(--t),transform var(--t)" onclick="editBancoField('reservaBRL','R$')" onmouseenter="this.style.borderColor='rgba(157,113,255,.35)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='var(--border)';this.style.transform='none'">
-    <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:var(--purple);border-radius:3px 0 0 3px"></div>
+    <button class="btn btn-primary btn-sm" onclick="showAddBancoModal()"><i class="ti ti-plus"></i> Banco</button>
+  </div>
+  ${bancos.length?`<div style="display:flex;flex-direction:column;gap:8px">
+    ${bancos.map(bk=>{
+      const cor=bankCors[bk.nome]||'var(--green)';
+      const pct=contaBRL?(bk.saldo/contaBRL*100):0;
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 14px;background:var(--card2);border:1px solid var(--border);border-left:3px solid ${cor};border-radius:8px">
+        <div style="flex:1">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">${bk.nome}</div>
+          <div style="height:4px;border-radius:2px;background:var(--border);margin-top:5px;overflow:hidden"><div style="height:100%;border-radius:2px;background:${cor};width:${Math.min(100,pct)}%"></div></div>
+        </div>
+        <div style="text-align:right;min-width:120px">
+          <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:var(--green)">${fmtBRL(bk.saldo||0)}</div>
+          <div style="font-size:10px;color:var(--text3)">${fmt(pct,1)}% das contas</div>
+        </div>
+        ${bk.id!=='legacy'?`<div style="display:flex;gap:4px">
+          <button class="btn btn-secondary btn-sm" style="padding:4px 7px" onclick="editBancoEntry('${bk.id}')"><i class="ti ti-pencil"></i></button>
+          <button class="btn btn-danger btn-sm" style="padding:4px 7px" onclick="deleteBancoEntry('${bk.id}')"><i class="ti ti-trash"></i></button>
+        </div>`:''}
+      </div>`;
+    }).join('')}
+  </div>`:`<div style="text-align:center;color:var(--text3);font-size:12px;padding:16px">Nenhum banco. Clique em <b>+ Banco</b> para adicionar.</div>`}
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;cursor:pointer;transition:border-color var(--t),transform var(--t)" onclick="editBancoField('reservaBRL','R$')" onmouseenter="this.style.borderColor='rgba(157,113,255,.35)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='var(--border)';this.style.transform='none'">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:32px;height:32px;border-radius:8px;background:rgba(157,113,255,.1);display:flex;align-items:center;justify-content:center">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        </div>
-        <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text)">Reserva Emergência</div>
-          <div style="font-size:10px;color:var(--text3)">Proteção · intocável</div>
-        </div>
+        <div style="width:32px;height:32px;border-radius:8px;background:rgba(157,113,255,.1);display:flex;align-items:center;justify-content:center"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--purple)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--text)">Reserva Emergência</div><div style="font-size:10px;color:var(--text3)">Proteção · intocável</div></div>
       </div>
       <i class="ti ti-pencil" style="font-size:13px;color:var(--text3)"></i>
     </div>
     <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:var(--purple);letter-spacing:-.3px">${fmtBRL(b.reservaBRL)}</div>
     <div style="margin-top:8px;height:3px;border-radius:2px;background:var(--border)"><div style="height:100%;border-radius:2px;background:var(--purple);width:${total?Math.min(100,b.reservaBRL/total*100):0}%"></div></div>
-    <div style="font-size:10px;color:var(--text3);margin-top:5px">${total?fmt(b.reservaBRL/total*100,1):0}% do patrimônio</div>
-  </div>`:'';
-
-  const cardReservaUSD=vis.reservaUSD?`
-  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;position:relative;overflow:hidden;cursor:pointer;transition:border-color var(--t),transform var(--t)" onclick="editReservaUSD()" onmouseenter="this.style.borderColor='rgba(245,166,35,.35)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='var(--border)';this.style.transform='none'">
-    <div style="position:absolute;top:0;left:0;width:3px;height:100%;background:var(--amber);border-radius:3px 0 0 3px"></div>
+    <div style="font-size:10px;color:var(--text3);margin-top:5px">${total?fmt(b.reservaBRL/total*100,1):0}% do total</div>
+  </div>
+  <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;cursor:pointer;transition:border-color var(--t),transform var(--t)" onclick="editReservaUSD()" onmouseenter="this.style.borderColor='rgba(245,166,35,.35)';this.style.transform='translateY(-2px)'" onmouseleave="this.style.borderColor='var(--border)';this.style.transform='none'">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <div style="display:flex;align-items:center;gap:8px">
         <div style="width:32px;height:32px;border-radius:8px;background:rgba(245,166,35,.1);display:flex;align-items:center;justify-content:center"><i class="ti ti-currency-dollar" style="color:var(--amber);font-size:16px"></i></div>
-        <div>
-          <div style="font-size:12px;font-weight:700;color:var(--text)">Reserva em Dólar</div>
-          <div style="font-size:10px;color:var(--text3)">Exchange + Trezor</div>
-        </div>
+        <div><div style="font-size:12px;font-weight:700;color:var(--text)">Reserva em Dólar</div><div style="font-size:10px;color:var(--text3)">Exchange + Trezor</div></div>
       </div>
       <i class="ti ti-pencil" style="font-size:13px;color:var(--text3)"></i>
     </div>
     <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:var(--amber);letter-spacing:-.3px">${fmtUSD(reservaUSD)}</div>
     <div style="font-size:11px;color:var(--text3);margin-top:4px;font-family:var(--mono)">≈ ${fmtBRL(totalUSDemBRL)}</div>
     <div style="margin-top:10px;display:flex;gap:6px">
-      <div style="flex:1;background:var(--card2);border-radius:6px;padding:6px 8px;border:1px solid var(--border)">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">Exchange</div>
-        <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--amber)">${fmtUSD(b.contaUSD)}</div>
-      </div>
-      <div style="flex:1;background:var(--card2);border-radius:6px;padding:6px 8px;border:1px solid var(--border)">
-        <div style="font-size:10px;color:var(--text3);margin-bottom:2px">🔐 Trezor</div>
-        <div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--amber)">${fmtUSD(b.trezorUSD)}</div>
-      </div>
-    </div>
-  </div>`:'';
-
-  const visibleCount=[vis.contaBRL,vis.reservaBRL,vis.reservaUSD].filter(Boolean).length||1;
-
-  return `
-<div style="margin-bottom:20px;max-width:860px">
-  <div class="page-title">Banco e Reserva</div>
-  <div class="page-subtitle">Visão consolidada do seu patrimônio em contas e reservas</div>
-</div>
-
-<!-- HERO TOTAL -->
-<div style="background:linear-gradient(135deg,var(--hero-bg) 0%,rgba(0,0,0,0) 60%);border:1px solid var(--hero-border);border-radius:16px;padding:24px 28px;margin-bottom:20px;max-width:860px;position:relative;overflow:hidden">
-  <div style="position:absolute;top:0;right:0;width:180px;height:180px;background:radial-gradient(circle,var(--hero-glow) 0%,transparent 70%);pointer-events:none"></div>
-  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--text3);margin-bottom:8px;display:flex;align-items:center;gap:6px"><i class="ti ti-crown" style="color:var(--orange)"></i> Patrimônio Total</div>
-  <div style="font-size:36px;font-weight:700;font-family:var(--mono);color:var(--orange);letter-spacing:-.5px;margin-bottom:4px">${fmtBRL(total)}</div>
-  <div style="font-size:13px;color:var(--text2);margin-bottom:20px">Cotação USD/BRL: <b style="color:var(--amber)">R$${fmt(rate)}</b></div>
-  <div style="margin-bottom:8px">
-    <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:6px">
-      <span>BRL <b style="color:var(--green)">${pctBRL}%</b></span>
-      <span><b style="color:var(--amber)">${pctUSD}%</b> USD</span>
-    </div>
-    <div style="height:6px;border-radius:3px;background:var(--border);overflow:hidden;display:flex">
-      <div style="width:${pctBRL}%;background:var(--green);transition:width .4s"></div>
-      <div style="flex:1;background:var(--amber);opacity:.7"></div>
+      <div style="flex:1;background:var(--card2);border-radius:6px;padding:6px 8px;border:1px solid var(--border)"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">Exchange</div><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--amber)">${fmtUSD(b.contaUSD)}</div></div>
+      <div style="flex:1;background:var(--card2);border-radius:6px;padding:6px 8px;border:1px solid var(--border)"><div style="font-size:10px;color:var(--text3);margin-bottom:2px">🔐 Trezor</div><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:var(--amber)">${fmtUSD(b.trezorUSD)}</div></div>
     </div>
   </div>
-  <div style="display:flex;gap:20px;font-size:12px;color:var(--text2);margin-top:10px">
-    <span>BRL: <b style="color:var(--green);font-family:var(--mono)">${fmtBRL(totalBRL)}</b></span>
-    <span>·</span>
-    <span>USD: <b style="color:var(--amber);font-family:var(--mono)">${fmtUSD(reservaUSD)}</b> ≈ <b style="color:var(--amber);font-family:var(--mono)">${fmtBRL(totalUSDemBRL)}</b></span>
-  </div>
-</div>
-
-<!-- CARDS -->
-<div style="display:grid;grid-template-columns:repeat(${visibleCount},1fr);gap:14px;max-width:860px">
-  ${cardContaBRL}${cardReservaBRL}${cardReservaUSD}
 </div>`;
+}
+
+function renderBancoTabCrypto(){
+  const b=state.banco;
+  const rate=getUsd();
+  const holdings=b.cryptoHoldings||[];
+  const total=getCryptoHoldingsBRL();
+  const totalUSD=holdings.reduce((s,h)=>s+(h.qty||0)*(h.priceUSD||0),0);
+  return `
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+  <div><div style="font-size:14px;font-weight:700;color:var(--text)">Crypto Pessoal</div><div style="font-size:11px;color:var(--text3)">Saldo de moedas digitais que você possui</div></div>
+  <div style="display:flex;gap:8px">
+    <button class="btn btn-secondary btn-sm" onclick="fetchCryptoPrices()"><i class="ti ti-refresh"></i> Atualizar preços</button>
+    <button class="btn btn-primary btn-sm" onclick="showAddCryptoModal()"><i class="ti ti-plus"></i> Adicionar</button>
+  </div>
+</div>
+<div class="cards-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px">
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-coins"></i> Ativos</div><div class="stat-card-value">${holdings.length}</div></div>
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-currency-dollar"></i> Total USD</div><div class="stat-card-value amber">${fmtUSD(totalUSD)}</div></div>
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-cash"></i> Total BRL</div><div class="stat-card-value" style="color:#f7931a">${fmtBRL(total)}</div></div>
+</div>
+${holdings.length?`<div style="display:flex;flex-direction:column;gap:8px">
+  ${holdings.map(h=>{
+    const valUSD=(h.qty||0)*(h.priceUSD||0);
+    const valBRL=valUSD*rate;
+    const pct=total?(valBRL/total*100):0;
+    return `<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-left:3px solid #f7931a;border-radius:10px">
+      <div style="min-width:56px;text-align:center">
+        <div style="font-size:14px;font-weight:800;color:#f7931a;font-family:var(--mono)">${h.symbol}</div>
+        <div style="font-size:10px;color:var(--text3);margin-top:1px">${(h.qty||0).toString().replace(/\.?0+$/,'')||0}</div>
+      </div>
+      <div style="flex:1">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-bottom:4px">
+          <span>Preço: <b style="color:var(--text);font-family:var(--mono)">${fmtUSD(h.priceUSD||0)}</b>${h.priceAt?` <span style="color:var(--text3)">${h.priceAt}</span>`:''}</span>
+          <span style="color:var(--text3)">${fmt(pct,1)}%</span>
+        </div>
+        <div style="height:4px;border-radius:2px;background:var(--border);overflow:hidden"><div style="height:100%;border-radius:2px;background:#f7931a;width:${Math.min(100,pct)}%"></div></div>
+      </div>
+      <div style="text-align:right;min-width:110px">
+        <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:#f7931a">${fmtBRL(valBRL)}</div>
+        <div style="font-size:10px;color:var(--text3)">${fmtUSD(valUSD)}</div>
+      </div>
+      <div style="display:flex;gap:4px">
+        <button class="btn btn-secondary btn-sm" style="padding:4px 7px" onclick="editCryptoHolding('${h.id}')"><i class="ti ti-pencil"></i></button>
+        <button class="btn btn-danger btn-sm" style="padding:4px 7px" onclick="deleteCryptoHolding('${h.id}')"><i class="ti ti-trash"></i></button>
+      </div>
+    </div>`;
+  }).join('')}
+</div>`:`<div style="text-align:center;color:var(--text3);font-size:12px;padding:32px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)">Nenhuma moeda cadastrada. Clique em <b>+ Adicionar</b>.</div>`}`;
+}
+
+const INV_COLORS={Ação:'#4cc9f0',FII:'#7c4dff',ETF:'#00e676',BDR:'#ffa726','Renda Fixa':'#f06292','Tesouro Direto':'#aed581',Outro:'#90a4ae'};
+
+function renderBancoTabInvestimentos(){
+  const b=state.banco;
+  const rate=getUsd();
+  const items=b.investimentos||[];
+  const total=getInvestimentosBRL();
+  const byTipo={};
+  items.forEach(i=>{byTipo[i.tipo]=(byTipo[i.tipo]||0)+invValBRL(i,rate);});
+  return `
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+  <div><div style="font-size:14px;font-weight:700;color:var(--text)">Investimentos</div><div style="font-size:11px;color:var(--text3)">Ações, FIIs, ETFs, BDRs e renda fixa</div></div>
+  <button class="btn btn-primary btn-sm" onclick="showAddInvestimentoModal()"><i class="ti ti-plus"></i> Adicionar</button>
+</div>
+<div class="cards-grid" style="grid-template-columns:repeat(auto-fill,minmax(140px,1fr));margin-bottom:16px">
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-briefcase"></i> Ativos</div><div class="stat-card-value">${items.length}</div></div>
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-cash"></i> Total</div><div class="stat-card-value" style="color:#4cc9f0">${fmtBRL(total)}</div></div>
+  ${Object.entries(byTipo).map(([t,v])=>`<div class="stat-card"><div class="stat-card-label" style="color:${INV_COLORS[t]||'#90a4ae'}">${t}</div><div class="stat-card-value" style="color:${INV_COLORS[t]||'#90a4ae'};font-size:14px">${fmtBRL(v)}</div></div>`).join('')}
+</div>
+${items.length?`<div style="display:flex;flex-direction:column;gap:10px">
+  ${items.map(i=>renderInvestimentoCard(i,rate,total)).join('')}
+</div>`:`<div style="text-align:center;color:var(--text3);font-size:12px;padding:32px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius)">Nenhum investimento cadastrado. Clique em <b>+ Adicionar</b>.</div>`}`;
+}
+
+// ── BANKS CRUD ──
+const BANKS_SUGG=['Nubank','Itaú','Bradesco','Santander','Caixa','Banco do Brasil','Inter','C6 Bank','BTG Pactual','XP','Sicoob','Sicredi'];
+function showAddBancoModal(id){
+  const existing=id?(state.banco.bancos||[]).find(b=>b.id===id):null;
+  showModal({
+    title:existing?'Editar Banco':'Adicionar Banco',
+    body:`<div class="form-group"><label class="form-label">Banco</label><input id="m-bk-nome" class="form-control" list="bk-list" placeholder="Ex: Nubank" value="${existing?.nome||''}"><datalist id="bk-list">${BANKS_SUGG.map(b=>`<option>${b}</option>`).join('')}</datalist></div>
+    <div class="form-group"><label class="form-label">Saldo (R$)</label><input id="m-bk-saldo" class="form-control" type="number" step="0.01" value="${existing?.saldo||0}"></div>`,
+    onOk:()=>{
+      const nome=document.getElementById('m-bk-nome').value.trim();
+      const saldo=parseFloat(document.getElementById('m-bk-saldo').value)||0;
+      if(!nome)return;
+      if(!state.banco.bancos)state.banco.bancos=[];
+      if(existing){existing.nome=nome;existing.saldo=saldo;}
+      else state.banco.bancos.push({id:uid(),nome,saldo});
+      closeModal();renderPage();
+    }
+  });
+}
+function editBancoEntry(id){showAddBancoModal(id);}
+function deleteBancoEntry(id){
+  if(!confirm('Remover banco?'))return;
+  state.banco.bancos=(state.banco.bancos||[]).filter(b=>b.id!==id);
+  renderPage();
+}
+
+// ── CRYPTO CRUD ──
+const CRYPTO_SYMBOLS=['BTC','ETH','BNB','SOL','XRP','ADA','DOGE','DOT','LINK','AVAX','MATIC','ATOM','LTC','TRX','NEAR','ARB','OP','PEPE'];
+const CRYPTO_IDS={BTC:'bitcoin',ETH:'ethereum',BNB:'binancecoin',SOL:'solana',XRP:'ripple',ADA:'cardano',DOGE:'dogecoin',DOT:'polkadot',LINK:'chainlink',AVAX:'avalanche-2',MATIC:'matic-network',ATOM:'cosmos',LTC:'litecoin',TRX:'tron',NEAR:'near',ARB:'arbitrum',OP:'optimism',PEPE:'pepe'};
+async function fetchCryptoPrices(){
+  const holdings=state.banco.cryptoHoldings||[];
+  if(!holdings.length){showToast('Nenhum ativo para atualizar.');return;}
+  const ids=[...new Set(holdings.map(h=>CRYPTO_IDS[h.symbol]).filter(Boolean))].join(',');
+  if(!ids){showToast('Símbolos desconhecidos — atualize manualmente.');return;}
+  showToast('Buscando cotações...');
+  try{
+    const r=await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
+    const data=await r.json();
+    const now=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    holdings.forEach(h=>{const gid=CRYPTO_IDS[h.symbol];if(gid&&data[gid])h.priceUSD=data[gid].usd,h.priceAt=now;});
+    saveState();renderPage();showToast('Cotações atualizadas!');
+  }catch(e){showToast('Erro ao buscar cotações.');}
+}
+function showAddCryptoModal(id){
+  const existing=id?(state.banco.cryptoHoldings||[]).find(h=>h.id===id):null;
+  showModal({
+    title:existing?'Editar Crypto':'Adicionar Crypto',
+    body:`<div class="form-row">
+      <div class="form-group"><label class="form-label">Símbolo</label><input id="m-c-sym" class="form-control" list="sym-list" placeholder="BTC" value="${existing?.symbol||''}" style="text-transform:uppercase"><datalist id="sym-list">${CRYPTO_SYMBOLS.map(s=>`<option>${s}</option>`).join('')}</datalist></div>
+      <div class="form-group"><label class="form-label">Quantidade</label><input id="m-c-qty" class="form-control" type="number" step="any" value="${existing?.qty||''}"></div>
+    </div>
+    <div class="form-group"><label class="form-label">Preço atual (USD) — ou use "Atualizar preços" para buscar</label><input id="m-c-price" class="form-control" type="number" step="any" value="${existing?.priceUSD||''}"></div>`,
+    onOk:()=>{
+      const symbol=(document.getElementById('m-c-sym').value||'').toUpperCase().trim();
+      const qty=parseFloat(document.getElementById('m-c-qty').value)||0;
+      const priceUSD=parseFloat(document.getElementById('m-c-price').value)||0;
+      if(!symbol||!qty)return;
+      if(!state.banco.cryptoHoldings)state.banco.cryptoHoldings=[];
+      if(existing){existing.symbol=symbol;existing.qty=qty;if(priceUSD)existing.priceUSD=priceUSD;}
+      else state.banco.cryptoHoldings.push({id:uid(),symbol,qty,priceUSD,priceAt:''});
+      closeModal();renderPage();
+    }
+  });
+}
+function editCryptoHolding(id){showAddCryptoModal(id);}
+function deleteCryptoHolding(id){
+  if(!confirm('Remover ativo?'))return;
+  state.banco.cryptoHoldings=(state.banco.cryptoHoldings||[]).filter(h=>h.id!==id);
+  renderPage();
+}
+
+// ── INVESTIMENTOS CARD ──
+function renderInvestimentoCard(i,rate,total){
+  const cor=INV_COLORS[i.tipo]||'#90a4ae';
+  const valBRL=invValBRL(i,rate);
+  const pct=total?(valBRL/total*100):0;
+  const badge=`<span style="font-size:10px;padding:2px 7px;border-radius:4px;background:${cor}22;color:${cor};display:inline-block">${i.tipo}</span>`;
+  const acts=`<div style="display:flex;gap:4px;flex-shrink:0;margin-left:8px">
+    <button class="btn btn-secondary btn-sm" style="padding:4px 7px" onclick="editInvestimento('${i.id}')"><i class="ti ti-pencil"></i></button>
+    <button class="btn btn-danger btn-sm" style="padding:4px 7px" onclick="deleteInvestimento('${i.id}')"><i class="ti ti-trash"></i></button>
+  </div>`;
+  const bar=`<div style="height:4px;border-radius:2px;background:var(--border);margin-top:8px;overflow:hidden"><div style="height:100%;border-radius:2px;background:${cor};width:${Math.min(100,pct)}%"></div></div>`;
+  const valBox=`<div style="text-align:right;min-width:120px;flex-shrink:0">
+    <div style="font-size:15px;font-weight:700;font-family:var(--mono);color:${cor}">${fmtBRL(valBRL)}</div>
+    <div style="font-size:10px;color:var(--text3)">${fmt(pct,1)}% do total</div>
+  </div>`;
+
+  if(['Ação','FII','ETF','BDR'].includes(i.tipo)){
+    const pm=i.precoMedio||i.precoUnit||0;
+    const pa=i.precoAtual||pm;
+    const qty=i.qty||0;
+    const plUnit=pm?(pa-pm):0;
+    const plTotal=plUnit*qty*(i.moeda==='USD'?rate:1);
+    const plPct=pm?(plUnit/pm*100):0;
+    const hasVar=pm&&pa!==pm;
+    const varStr=hasVar?`<span style="color:${plTotal>=0?'var(--green)':'var(--red)'};font-weight:700">${plTotal>=0?'+':''}${fmtBRL(plTotal)} (${plTotal>=0?'+':''}${fmt(plPct,2)}%)</span>`:'';
+    const rendaMensal=i.tipo==='FII'&&i.ultimoDividendo?qty*(i.ultimoDividendo):0;
+    const extras=[
+      i.setor?`<span style="color:var(--text3)">${i.setor}</span>`:'',
+      i.tipo==='ETF'&&i.benchmark?`<span style="color:var(--text3)">${i.benchmark}</span>`:'',
+      i.tipo==='FII'&&i.pvp?`<span style="color:var(--text3)">P/VP ${fmt(i.pvp,2)}</span>`:'',
+    ].filter(Boolean).join(' · ');
+    return `<div style="background:var(--card);border:1px solid var(--border);border-left:3px solid ${cor};border-radius:10px;padding:14px 16px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="min-width:76px">
+          <div style="font-size:13px;font-weight:800;color:${cor};font-family:var(--mono);margin-bottom:4px">${i.ticker||'—'}</div>
+          ${badge}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">${i.nome}${extras?` <span style="font-weight:400;color:var(--text3);font-size:11px">· ${extras}</span>`:''}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:5px;font-size:11px;color:var(--text2)">
+            <span><b>${fmt(qty,0)}</b> cotas</span>
+            ${pm?`<span>Médio: <b style="font-family:var(--mono)">${i.moeda==='USD'?fmtUSD(pm):fmtBRL(pm)}</b></span>`:''}
+            ${pa&&hasVar?`<span>Atual: <b style="font-family:var(--mono);color:${cor}">${i.moeda==='USD'?fmtUSD(pa):fmtBRL(pa)}</b></span>`:''}
+            ${varStr}
+            ${rendaMensal?`<span style="color:var(--green)"><i class="ti ti-coin"></i> <b>${fmtBRL(rendaMensal)}/mês</b></span>`:''}
+          </div>
+          ${bar}
+        </div>
+        ${valBox}${acts}
+      </div>
+    </div>`;
+  }
+
+  if(i.tipo==='Renda Fixa'){
+    const rendimento=(i.valorAtual||0)-(i.valorInvestido||0);
+    const rendPct=i.valorInvestido?(rendimento/i.valorInvestido*100):0;
+    const vencStr=i.vencimento?new Date(i.vencimento+'T12:00').toLocaleDateString('pt-BR'):'';
+    const taxaStr=i.indexador&&i.taxa?(i.indexador==='Prefixado'?`${fmt(i.taxa,2)}% a.a.`:`${i.indexador} + ${fmt(i.taxa,2)}% a.a.`):i.taxa?`${fmt(i.taxa,2)}% a.a.`:'';
+    return `<div style="background:var(--card);border:1px solid var(--border);border-left:3px solid ${cor};border-radius:10px;padding:14px 16px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="min-width:76px">
+          <div style="font-size:11px;font-weight:800;color:${cor};font-family:var(--mono);margin-bottom:4px">${i.tipoRF||'CDB'}</div>
+          ${badge}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">${i.emissor||i.nome}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:5px;font-size:11px;color:var(--text2)">
+            ${taxaStr?`<span><i class="ti ti-percent"></i> <b>${taxaStr}</b></span>`:''}
+            ${vencStr?`<span><i class="ti ti-calendar"></i> Vence <b>${vencStr}</b></span>`:''}
+            ${i.valorInvestido?`<span>Investido: <b style="font-family:var(--mono)">${fmtBRL(i.valorInvestido)}</b></span>`:''}
+            ${rendimento?`<span style="color:${rendimento>=0?'var(--green)':'var(--red)'};font-weight:700">${rendimento>=0?'+':''}${fmtBRL(rendimento)} (${rendimento>=0?'+':''}${fmt(rendPct,2)}%)</span>`:''}
+          </div>
+          ${bar}
+        </div>
+        ${valBox}${acts}
+      </div>
+    </div>`;
+  }
+
+  if(i.tipo==='Tesouro Direto'){
+    const rendimento=(i.valorAtual||0)-(i.valorInvestido||0);
+    const rendPct=i.valorInvestido?(rendimento/i.valorInvestido*100):0;
+    const vencStr=i.vencimento?new Date(i.vencimento+'T12:00').toLocaleDateString('pt-BR'):'';
+    const taxaStr=i.taxa?`${fmt(i.taxa,2)}% a.a.`:'';
+    const tdNome=i.tipoTD||'Tesouro Direto';
+    return `<div style="background:var(--card);border:1px solid var(--border);border-left:3px solid ${cor};border-radius:10px;padding:14px 16px">
+      <div style="display:flex;align-items:flex-start;gap:12px">
+        <div style="min-width:76px">
+          <div style="font-size:11px;font-weight:800;color:${cor};font-family:var(--mono);margin-bottom:4px">TD</div>
+          ${badge}
+        </div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:600;color:var(--text)">${tdNome}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:5px;font-size:11px;color:var(--text2)">
+            ${taxaStr?`<span><i class="ti ti-percent"></i> <b>${taxaStr}</b></span>`:''}
+            ${vencStr?`<span><i class="ti ti-calendar"></i> Vence <b>${vencStr}</b></span>`:''}
+            ${i.valorInvestido?`<span>Investido: <b style="font-family:var(--mono)">${fmtBRL(i.valorInvestido)}</b></span>`:''}
+            ${rendimento?`<span style="color:${rendimento>=0?'var(--green)':'var(--red)'};font-weight:700">${rendimento>=0?'+':''}${fmtBRL(rendimento)} (${rendimento>=0?'+':''}${fmt(rendPct,2)}%)</span>`:''}
+          </div>
+          ${bar}
+        </div>
+        ${valBox}${acts}
+      </div>
+    </div>`;
+  }
+
+  return `<div style="background:var(--card);border:1px solid var(--border);border-left:3px solid ${cor};border-radius:10px;padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div style="min-width:76px"><div style="font-size:13px;font-weight:800;color:${cor};font-family:var(--mono);margin-bottom:4px">${i.ticker||'—'}</div>${badge}</div>
+      <div style="flex:1"><div style="font-size:13px;font-weight:600;color:var(--text)">${i.nome}</div>${bar}</div>
+      ${valBox}${acts}
+    </div>
+  </div>`;
+}
+
+// ── INVESTIMENTOS CRUD ──
+const INV_TIPOS=['Ação','FII','ETF','BDR','Renda Fixa','Tesouro Direto','Outro'];
+const INV_TIPOS_RF=['CDB','LCI','LCA','LC','Debênture','CRI','CRA','Poupança'];
+const INV_TIPOS_TD=['Tesouro Selic','Tesouro IPCA+','Tesouro IPCA+ Juros Semestrais','Tesouro Prefixado','Tesouro Prefixado Juros Semestrais'];
+const INV_INDEXADORES=['CDI','IPCA','SELIC','Prefixado','IGPM','INPC'];
+
+function updateInvForm(){
+  const tipo=document.getElementById('m-i-tipo')?.value||'Ação';
+  const isMarket=['Ação','FII','ETF','BDR'].includes(tipo);
+  const show=id=>document.getElementById(id)?.style.setProperty('display','block');
+  const hide=id=>document.getElementById(id)?.style.setProperty('display','none');
+  isMarket?show('inv-sec-market'):hide('inv-sec-market');
+  tipo==='FII'?show('inv-sec-fii'):hide('inv-sec-fii');
+  tipo==='ETF'?show('inv-sec-etf'):hide('inv-sec-etf');
+  ['BDR','ETF'].includes(tipo)?show('inv-sec-moeda'):hide('inv-sec-moeda');
+  tipo==='Renda Fixa'?show('inv-sec-rf'):hide('inv-sec-rf');
+  tipo==='Tesouro Direto'?show('inv-sec-td'):hide('inv-sec-td');
+  tipo==='Outro'?show('inv-sec-outro'):hide('inv-sec-outro');
+}
+
+function showAddInvestimentoModal(id){
+  const x=id?(state.banco.investimentos||[]).find(i=>i.id===id):null;
+  const tipo=x?.tipo||'Ação';
+  const isMarket=['Ação','FII','ETF','BDR'].includes(tipo);
+  const isRF=tipo==='Renda Fixa', isTD=tipo==='Tesouro Direto', isOutro=tipo==='Outro';
+  const d=(v,f='')=>v||f;
+  showModal({
+    title:x?'Editar Investimento':'Adicionar Investimento',
+    body:`
+<div class="form-row">
+  <div class="form-group"><label class="form-label">Ticker / Código</label><input id="m-i-ticker" class="form-control" placeholder="ITSA4" value="${d(x?.ticker)}" style="text-transform:uppercase"></div>
+  <div class="form-group"><label class="form-label">Tipo</label><select id="m-i-tipo" class="form-control" onchange="updateInvForm()">${INV_TIPOS.map(t=>`<option ${tipo===t?'selected':''}>${t}</option>`).join('')}</select></div>
+</div>
+<div class="form-group"><label class="form-label">Nome / Descrição</label><input id="m-i-nome" class="form-control" placeholder="Itaúsa" value="${d(x?.nome)}"></div>
+
+<div id="inv-sec-market" style="display:${isMarket?'block':'none'}">
+  <div class="form-row">
+    <div class="form-group"><label class="form-label">Quantidade de cotas</label><input id="m-i-qty" class="form-control" type="number" step="any" value="${d(x?.qty)}"></div>
+    <div class="form-group"><label class="form-label">Preço médio de compra</label><input id="m-i-medio" class="form-control" type="number" step="any" placeholder="Custo médio por cota" value="${d(x?.precoMedio||x?.precoUnit)}"></div>
+  </div>
+  <div class="form-group"><label class="form-label">Preço atual <span style="color:var(--text3)">(cotação hoje)</span></label><input id="m-i-atual" class="form-control" type="number" step="any" placeholder="Deixe vazio para usar o preço médio" value="${d(x?.precoAtual)}"></div>
+  <div class="form-group"><label class="form-label">Setor <span style="color:var(--text3)">(opcional)</span></label><input id="m-i-setor" class="form-control" placeholder="Financeiro, Energia, Utilidades..." value="${d(x?.setor)}"></div>
+</div>
+
+<div id="inv-sec-fii" style="display:${tipo==='FII'?'block':'none'}">
+  <div style="font-size:11px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">Dados do FII</div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label">Último dividendo (R$/cota)</label><input id="m-i-div" class="form-control" type="number" step="any" placeholder="Ex: 1.20" value="${d(x?.ultimoDividendo)}"></div>
+    <div class="form-group"><label class="form-label">P/VP <span style="color:var(--text3)">(opcional)</span></label><input id="m-i-pvp" class="form-control" type="number" step="any" placeholder="Ex: 0.98" value="${d(x?.pvp)}"></div>
+  </div>
+</div>
+
+<div id="inv-sec-etf" style="display:${tipo==='ETF'?'block':'none'}">
+  <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">Dados do ETF</div>
+  <div class="form-group"><label class="form-label">Benchmark <span style="color:var(--text3)">(opcional)</span></label><input id="m-i-bench" class="form-control" placeholder="Ibovespa, S&P 500, MSCI..." value="${d(x?.benchmark)}"></div>
+</div>
+
+<div id="inv-sec-moeda" style="display:${['BDR','ETF'].includes(tipo)?'block':'none'}">
+  <div class="form-group"><label class="form-label">Moeda dos preços</label><select id="m-i-moeda" class="form-control"><option value="BRL" ${x?.moeda!=='USD'?'selected':''}>R$ — Real</option><option value="USD" ${x?.moeda==='USD'?'selected':''}>$ — Dólar (EUA)</option></select></div>
+</div>
+
+<div id="inv-sec-rf" style="display:${isRF?'block':'none'}">
+  <div style="font-size:11px;font-weight:700;color:#f06292;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">Dados da Renda Fixa</div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label">Tipo</label><select id="m-i-tipoRF" class="form-control">${INV_TIPOS_RF.map(t=>`<option ${x?.tipoRF===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Emissor / Banco</label><input id="m-i-emissor" class="form-control" placeholder="Nubank, XP, Itaú..." value="${d(x?.emissor)}"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label">Indexador</label><select id="m-i-indexador" class="form-control">${INV_INDEXADORES.map(t=>`<option ${x?.indexador===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="form-group"><label class="form-label">Taxa (% a.a. ou % do CDI)</label><input id="m-i-rf-taxa" class="form-control" type="number" step="any" placeholder="Ex: 110 (para 110% CDI)" value="${d(x?.taxa)}"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label">Valor investido (R$)</label><input id="m-i-vinv" class="form-control" type="number" step="any" value="${d(x?.valorInvestido)}"></div>
+    <div class="form-group"><label class="form-label">Valor atual (R$)</label><input id="m-i-vatual" class="form-control" type="number" step="any" placeholder="Deixe vazio = igual ao investido" value="${d(x?.valorAtual)}"></div>
+  </div>
+  <div class="form-group"><label class="form-label">Vencimento</label><input id="m-i-rf-venc" class="form-control" type="date" value="${d(x?.vencimento)}"></div>
+</div>
+
+<div id="inv-sec-td" style="display:${isTD?'block':'none'}">
+  <div style="font-size:11px;font-weight:700;color:#aed581;text-transform:uppercase;letter-spacing:.5px;margin:12px 0 8px">Dados do Tesouro Direto</div>
+  <div class="form-group"><label class="form-label">Tipo do Tesouro</label><select id="m-i-tdtipo" class="form-control">${INV_TIPOS_TD.map(t=>`<option ${x?.tipoTD===t?'selected':''}>${t}</option>`).join('')}</select></div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label">Taxa (% a.a.)</label><input id="m-i-td-taxa" class="form-control" type="number" step="any" placeholder="Ex: 5.82" value="${d(x?.taxa)}"></div>
+    <div class="form-group"><label class="form-label">Vencimento</label><input id="m-i-td-venc" class="form-control" type="date" value="${d(x?.vencimento)}"></div>
+  </div>
+  <div class="form-row">
+    <div class="form-group"><label class="form-label">Valor investido (R$)</label><input id="m-i-td-vinv" class="form-control" type="number" step="any" value="${d(x?.valorInvestido)}"></div>
+    <div class="form-group"><label class="form-label">Valor atual (R$)</label><input id="m-i-td-vatual" class="form-control" type="number" step="any" placeholder="Deixe vazio = igual ao investido" value="${d(x?.valorAtual)}"></div>
+  </div>
+</div>
+
+<div id="inv-sec-outro" style="display:${isOutro?'block':'none'}">
+  <div class="form-group"><label class="form-label">Valor atual (R$)</label><input id="m-i-vatual-outro" class="form-control" type="number" step="any" value="${d(x?.valorAtual)}"></div>
+</div>`,
+    onOk:()=>{
+      const ticker=(document.getElementById('m-i-ticker').value||'').toUpperCase().trim();
+      const tipo=document.getElementById('m-i-tipo').value;
+      const nome=document.getElementById('m-i-nome').value.trim()||ticker;
+      const isMarket=['Ação','FII','ETF','BDR'].includes(tipo);
+      const isRF=tipo==='Renda Fixa', isTD=tipo==='Tesouro Direto', isOutro=tipo==='Outro';
+      if(!state.banco.investimentos)state.banco.investimentos=[];
+      let entry={id:x?.id||uid(),ticker,tipo,nome};
+      if(isMarket){
+        const qty=parseFloat(document.getElementById('m-i-qty').value)||0;
+        const precoMedio=parseFloat(document.getElementById('m-i-medio').value)||0;
+        const precoAtual=parseFloat(document.getElementById('m-i-atual').value)||precoMedio;
+        if(!qty||!precoMedio){showToast('Preencha quantidade e preço médio.');return;}
+        const moeda=['BDR','ETF'].includes(tipo)?(document.getElementById('m-i-moeda')?.value||'BRL'):'BRL';
+        Object.assign(entry,{qty,precoMedio,precoAtual,moeda,setor:document.getElementById('m-i-setor').value.trim()});
+        if(tipo==='FII'){entry.ultimoDividendo=parseFloat(document.getElementById('m-i-div').value)||0;entry.pvp=parseFloat(document.getElementById('m-i-pvp').value)||0;}
+        if(tipo==='ETF')entry.benchmark=document.getElementById('m-i-bench').value.trim();
+      } else if(isRF){
+        const vinv=parseFloat(document.getElementById('m-i-vinv').value)||0;
+        if(!vinv){showToast('Preencha o valor investido.');return;}
+        Object.assign(entry,{tipoRF:document.getElementById('m-i-tipoRF').value,emissor:document.getElementById('m-i-emissor').value.trim(),indexador:document.getElementById('m-i-indexador').value,taxa:parseFloat(document.getElementById('m-i-rf-taxa').value)||0,vencimento:document.getElementById('m-i-rf-venc').value,valorInvestido:vinv,valorAtual:parseFloat(document.getElementById('m-i-vatual').value)||vinv});
+      } else if(isTD){
+        const vinv=parseFloat(document.getElementById('m-i-td-vinv').value)||0;
+        if(!vinv){showToast('Preencha o valor investido.');return;}
+        Object.assign(entry,{tipoTD:document.getElementById('m-i-tdtipo').value,taxa:parseFloat(document.getElementById('m-i-td-taxa').value)||0,vencimento:document.getElementById('m-i-td-venc').value,valorInvestido:vinv,valorAtual:parseFloat(document.getElementById('m-i-td-vatual').value)||vinv});
+      } else {
+        entry.valorAtual=parseFloat(document.getElementById('m-i-vatual-outro').value)||0;
+      }
+      if(x){const idx=state.banco.investimentos.findIndex(i=>i.id===x.id);if(idx>=0)state.banco.investimentos[idx]=entry;}
+      else state.banco.investimentos.push(entry);
+      closeModal();renderPage();
+    }
+  });
+}
+function editInvestimento(id){showAddInvestimentoModal(id);}
+function deleteInvestimento(id){
+  if(!confirm('Remover investimento?'))return;
+  state.banco.investimentos=(state.banco.investimentos||[]).filter(i=>i.id!==id);
+  renderPage();
 }
 
 function bancoTip(text){
   return `<span style="position:relative;display:inline-flex;align-items:center;margin-left:5px;cursor:default" onmouseenter="this.querySelector('.bc-tt').style.opacity='1';this.querySelector('.bc-tt').style.pointerEvents='auto'" onmouseleave="this.querySelector('.bc-tt').style.opacity='0';this.querySelector('.bc-tt').style.pointerEvents='none'"><span style="display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:rgba(245,166,35,.18);color:var(--amber);font-size:10px;font-weight:700;line-height:1">!</span><span class="bc-tt" style="position:absolute;top:50%;transform:translateY(-50%);left:calc(100% + 8px);background:#1a1a1a;border:1px solid var(--border2);color:var(--text);font-size:11px;padding:6px 10px;border-radius:7px;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;z-index:99;font-weight:400;box-shadow:0 4px 16px rgba(0,0,0,.6)">${text}</span></span>`;
 }
-function bancoCampo(key,label,val,icon,color,prefix,sub){
-  return `<div class="stat-card">
-    <div class="stat-card-label"><i class="ti ${icon}"></i> ${label}</div>
-    <div class="stat-card-value ${color}" style="cursor:pointer" onclick="editBancoField('${key}','${prefix}')" title="Clique para editar">${val}</div>
-    ${sub?`<div class="stat-card-sub">${sub}</div>`:''}
-  </div>`;
-}
-
-function showBancoSettingsModal(){
-  if(!state.bancoVis)state.bancoVis={contaBRL:true,reservaBRL:true,reservaUSD:true};
-  const vis=state.bancoVis;
-  const fields=[
-    {key:'contaBRL',label:'Conta BRL',color:'var(--green)',icon:'ti-building-bank'},
-    {key:'reservaBRL',label:'Reserva Emergência',color:'var(--purple)',icon:'ti-safe'},
-    {key:'reservaUSD',label:'Reserva em Dólar',color:'var(--amber)',icon:'ti-currency-dollar'},
-  ];
-  showModal({
-    title:'Banco e Reserva — Campos',
-    body:`<div style="display:flex;flex-direction:column;gap:10px">
-      ${fields.map(f=>`
-        <div style="display:flex;align-items:center;gap:14px;padding:12px 14px;background:var(--card2);border:1px solid ${vis[f.key]?f.color:'var(--border2)'};border-radius:10px;cursor:pointer;transition:var(--t)" onclick="toggleBancoVis('${f.key}',this,'${f.color}')">
-          <i class="ti ${f.icon}" style="font-size:18px;color:${f.color};min-width:22px"></i>
-          <span style="flex:1;font-weight:600;font-size:13px">${f.label}</span>
-          <div id="bvis-tog-${f.key}" style="width:36px;height:20px;border-radius:10px;background:${vis[f.key]?f.color:'var(--border2)'};position:relative;transition:background .2s;flex-shrink:0">
-            <div style="position:absolute;top:2px;left:${vis[f.key]?'16px':'2px'};width:16px;height:16px;border-radius:50%;background:#fff;transition:left .2s"></div>
-          </div>
-        </div>`).join('')}
-    </div>`,
-    onOk:closeModal,
-    okLabel:'Fechar'
-  });
-}
-function toggleBancoVis(key){
-  if(!state.bancoVis)state.bancoVis={contaBRL:true,reservaBRL:true,reservaUSD:true};
-  state.bancoVis[key]=!state.bancoVis[key];
-  const v=state.bancoVis[key];
-  const colors={contaBRL:'var(--green)',reservaBRL:'var(--purple)',reservaUSD:'var(--amber)'};
-  const color=colors[key];
-  const row=document.querySelector(`[onclick*="toggleBancoVis('${key}'"]`);
-  if(row)row.style.borderColor=v?color:'var(--border2)';
-  const tog=document.getElementById('bvis-tog-'+key);
-  if(tog){tog.style.background=v?color:'var(--border2)';tog.firstElementChild.style.left=v?'16px':'2px';}
-  saveState();renderPage();
-}
+function showBancoSettingsModal(){}
 function editReservaUSD(){
   showModal({
     title:'Reserva em Dólar',
-    body:`
-    <div class="form-group"><label class="form-label">Exchange / USDT ($)</label><input id="m-usd-exchange" class="form-control" type="number" step="0.01" value="${state.banco.contaUSD||0}"></div>
+    body:`<div class="form-group"><label class="form-label">Exchange / USDT ($)</label><input id="m-usd-exchange" class="form-control" type="number" step="0.01" value="${state.banco.contaUSD||0}"></div>
     <div class="form-group"><label class="form-label">🔐 Trezor / Cold Wallet ($)</label><input id="m-usd-trezor" class="form-control" type="number" step="0.01" value="${state.banco.trezorUSD||0}"></div>`,
     onOk:()=>{
       state.banco.contaUSD=parseFloat(document.getElementById('m-usd-exchange').value)||0;
@@ -1977,7 +2383,7 @@ function renderImportacao(){
   const prods=state.importacao;
   const totalInv=prods.reduce((s,p)=>s+(p.custo||0),0);
   const totalReal=prods.filter(p=>p.status==='Vendido').reduce((s,p)=>s+(p.lucro||0),0);
-  const totalProj=prods.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+((p.vendaProjetada||0)-(p.custo||0))*getUsd(),0);
+  const totalProj=prods.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+(p.vendaProjetada||0)-(p.custo||0),0);
 
   return `
 <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
@@ -1986,7 +2392,7 @@ function renderImportacao(){
 </div>
 <div class="cards-grid" style="grid-template-columns:repeat(4,1fr)">
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-package"></i> Produtos</div><div class="stat-card-value">${prods.length}</div></div>
-  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-cash"></i> Capital investido</div><div class="stat-card-value amber">${fmtUSD(totalInv)}</div></div>
+  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-cash"></i> Capital investido</div><div class="stat-card-value amber">${fmtBRL(totalInv)}</div></div>
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-check"></i> Lucro realizado</div><div class="stat-card-value green">${fmtBRL(totalReal)}</div></div>
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro projetado</div><div class="stat-card-value purple">${fmtBRL(totalProj)}</div></div>
 </div>
@@ -1999,11 +2405,11 @@ ${IMP_STAGES.map(stage=>{
       <span class="pill" style="background:var(--card2)">${stageProd.length}</span>
     </div>
     ${stageProd.map(p=>{
-      const lucro=stage==='Vendido'?(p.lucro||0):((p.vendaProjetada||0)-(p.custo||0))*getUsd();
+      const lucro=stage==='Vendido'?(p.lucro||0):(p.vendaProjetada||0)-(p.custo||0);
       return `<div class="kanban-card">
         <div class="kanban-card-name">${p.nome}</div>
         <div class="kanban-card-vals">
-          <span>Custo: ${fmtUSD(p.custo||0)}</span>
+          <span>Custo: ${fmtBRL(p.custo||0)}</span>
           <span style="color:${lucro>=0?'var(--green)':'var(--red)'}">${fmtBRL(lucro)}</span>
         </div>
         <div style="margin-top:8px;display:flex;gap:6px;align-items:center">
@@ -2024,7 +2430,7 @@ function moveImp(id,newStatus){
   const p=state.importacao.find(p=>p.id===id);
   if(!p)return;
   p.status=newStatus;
-  if(newStatus==='Vendido')p.lucro=((p.vendaProjetada||0)-(p.custo||0))*getUsd();
+  if(newStatus==='Vendido')p.lucro=(p.vendaProjetada||0)-(p.custo||0);
   renderPage();
 }
 
@@ -2927,8 +3333,8 @@ function showAddImpModal(){
     </div>
     <div class="form-group hidden" id="m-custom-group"><label class="form-label">Nome personalizado</label><input id="m-nome-custom" class="form-control"></div>
     <div class="form-row">
-      <div class="form-group"><label class="form-label">Custo ($)</label><input id="m-custo" class="form-control" type="number" step="0.01"></div>
-      <div class="form-group"><label class="form-label">Venda projetada ($)</label><input id="m-venda" class="form-control" type="number" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Custo (R$)</label><input id="m-custo" class="form-control" type="number" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Venda projetada (R$)</label><input id="m-venda" class="form-control" type="number" step="0.01"></div>
     </div>
     <div class="form-group"><label class="form-label">Status inicial</label>
       <select id="m-status" class="form-control">${IMP_STAGES.map(s=>`<option>${s}</option>`).join('')}</select></div>`,
