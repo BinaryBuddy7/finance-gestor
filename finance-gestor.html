@@ -848,6 +848,24 @@ function calcBancaROI(bancaId){
   const lucro=calcBancaLucro(bancaId);
   return init?(lucro/init)*100:0;
 }
+function bancaSaldoInfo(bancaId){
+  const months=(state.months[bancaId]||[]).slice().sort((a,c)=>a.year*100+a.month-(c.year*100+c.month));
+  for(let i=months.length-1;i>=0;i--){
+    const m=months[i];
+    const recs=m.records||[];
+    for(let j=recs.length-1;j>=0;j--){
+      if(recs[j].bancaFinalDia){
+        const ref=(m.name||(MONTHS_PT[(m.month||1)-1].slice(0,3)+'/'+String(m.year||'').slice(-2)));
+        return{valor:recs[j].bancaFinalDia,mesRef:ref,sortKey:(m.year||0)*100+(m.month||0)};
+      }
+    }
+    if(m.bancaInicial){
+      const ref=(m.name||(MONTHS_PT[(m.month||1)-1].slice(0,3)+'/'+String(m.year||'').slice(-2)));
+      return{valor:m.bancaInicial,mesRef:ref,sortKey:(m.year||0)*100+(m.month||0)};
+    }
+  }
+  return{valor:0,mesRef:null,sortKey:0};
+}
 function mkSparklinePath(data,w,h){
   if(data.length<2)return null;
   const min=Math.min(...data);const max=Math.max(...data);const range=max-min||max||1;
@@ -917,17 +935,8 @@ function renderHome(){
     </div>`;
   }).join('');
 
-  // Saldo atual das bancas (último bancaFinalDia de cada banca)
-  function bancaSaldoAtual(bancaId){
-    const months=(state.months[bancaId]||[]).slice().sort((a,c)=>a.year*100+a.month-(c.year*100+c.month));
-    if(!months.length)return 0;
-    const lastMonth=months[months.length-1];
-    const recs=lastMonth.records||[];
-    if(!recs.length)return lastMonth.bancaInicial||0;
-    return recs[recs.length-1].bancaFinalDia||0;
-  }
-  const cryptoSaldoUSD=cryptoBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0);
-  const betSaldoBRL=betBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0);
+  const cryptoSaldoUSD=cryptoBancas.reduce((s,b)=>s+bancaSaldoInfo(b.id).valor,0);
+  const betSaldoBRL=betBancas.reduce((s,b)=>s+bancaSaldoInfo(b.id).valor,0);
 
   const rate=getUsd();
   // Totals — cryptoLucro em USD, betLucro já em BRL
@@ -935,13 +944,6 @@ function renderHome(){
 
   // Empréstimos + Outros
   const empCap=state.emprestimos.reduce((s,e)=>s+(e.capital||0),0);
-  const empRec=state.emprestimos.reduce((s,e)=>s+(e.parcelas||[]).filter(p=>p.pago).reduce((ss,p)=>ss+(p.valor||0),0),0);
-  const empJurosRec=state.emprestimos.reduce((s,e)=>{
-    const n=(e.parcelas||[]).length;
-    const totalP=(e.parcelas||[]).reduce((ss,p)=>ss+(p.valor||0),0);
-    const jurosP=n?Math.max(0,totalP-(e.capital||0))/n:0;
-    return s+(e.parcelas||[]).filter(p=>p.pago).length*jurosP;
-  },0);
   const impReal=state.importacao.filter(p=>p.status==='Vendido').reduce((s,p)=>s+(p.lucro||0),0);
   const impCapital=state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+(p.custo||0),0);
   const impLucroProj=state.importacao.filter(p=>p.status!=='Vendido').reduce((s,p)=>s+(p.vendaProjetada||0)-(p.custo||0),0);
@@ -964,9 +966,12 @@ function renderHome(){
 
   // alocação
   const themeAccent=getComputedStyle(document.documentElement).getPropertyValue('--orange').trim()||'#f7931a';
+  const bancasAlloc=[
+    ...cryptoBancas.map(b=>{const info=bancaSaldoInfo(b.id);return{label:b.name,icon:'ti-currency-bitcoin',valor:info.valor*rate,color:b.color,note:b.isOperator?`OP ${b.split||0}%`:null,_s:info.sortKey};}),
+    ...betBancas.map(b=>{const info=bancaSaldoInfo(b.id);return{label:b.name,icon:'ti-trophy',valor:info.valor,color:b.color,note:b.isOperator?`OP ${b.split||0}%`:null,_s:info.sortKey};})
+  ].sort((a,b)=>b._s-a._s);
   const allocItems=[
-    {label:'Banca Crypto',icon:'ti-currency-bitcoin',valor:cryptoSaldoUSD*rate,color:themeAccent},
-    {label:'Banca Bet',icon:'ti-trophy',valor:betSaldoBRL,color:'#4361ee'},
+    ...bancasAlloc,
     {label:'Contas BRL',icon:'ti-building-bank',valor:getBancoBRL(),color:'#2dc653'},
     {label:'Reserva Emergência',icon:'ti-shield',valor:state.banco.reservaBRL,color:'#cc5de8'},
     {label:'Reserva USD',icon:'ti-currency-dollar',valor:(state.banco.contaUSD+state.banco.trezorUSD)*rate,color:'#ffd43b'},
@@ -974,7 +979,7 @@ function renderHome(){
     ...(getInvestimentosBRL()>0?[{label:'Investimentos',icon:'ti-chart-bar',valor:getInvestimentosBRL(),color:'#4cc9f0'}]:[]),
     ...(state.modules.outros&&empCap>0?[{label:'Capital Emprestado',icon:'ti-cash',valor:empCap,color:'#20c997'}]:[]),
     ...(state.modules.outros&&(impReal+impProj)>0?[{label:'Importação Apple',icon:'ti-apple',valor:impReal+impProj,color:'#a8a8a8',note:`Realizado ${fmtBRL(impReal)} · Capital ${fmtBRL(impCapital)} · Lucro proj. ${fmtBRL(impLucroProj)}`}]:[]),
-  ].filter(a=>a.valor>0);
+  ].filter(a=>a.valor>0).sort((a,b)=>b.valor-a.valor);
 
   return`
 <div class="page-header">
@@ -999,7 +1004,7 @@ function renderHome(){
         <label class="toggle" style="justify-content:space-between;cursor:pointer" onclick="state.patrimonioOpts.incluirEmp=!state.patrimonioOpts.incluirEmp;renderPage()">
           <div>
             <div style="font-size:13px;font-weight:600;color:var(--amber)"><i class="ti ti-hand-money"></i> Capital emprestado</div>
-            <div style="font-size:11px;color:var(--text2);margin-top:2px">${fmtBRL(empCap)} a receber · juros recebidos ${fmtBRL(empJurosRec)}</div>
+            <div style="font-size:11px;color:var(--text2);margin-top:2px">${fmtBRL(empCap)} · ${state.emprestimos.length} devedor${state.emprestimos.length!==1?'es':''}</div>
           </div>
           <input type="checkbox" ${state.patrimonioOpts.incluirEmp?'checked':''} onclick="event.stopPropagation()">
           <div class="toggle-track"><div class="toggle-thumb"></div></div>
@@ -1040,24 +1045,21 @@ function renderHome(){
         </style>
       </div>
       <!-- LEGENDA -->
-      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+      <div style="flex:1;display:flex;flex-direction:column;gap:5px;overflow:hidden">
         ${allocItems.length===0
           ?`<div style="color:var(--text3);font-size:13px">Nenhum saldo cadastrado</div>`
           :allocItems.map(a=>{
             const pct=totalPatrimonio?(a.valor/totalPatrimonio*100):0;
-            return`<div style="display:flex;align-items:center;gap:10px">
-              <div style="width:32px;height:32px;border-radius:8px;background:${a.color}18;border:1px solid ${a.color}44;display:flex;align-items:center;justify-content:center;flex-shrink:0">
-                <i class="ti ${a.icon}" style="font-size:14px;color:${a.color}"></i>
-              </div>
+            return`<div style="display:flex;align-items:center;gap:7px">
+              <div style="width:7px;height:7px;border-radius:50%;background:${a.color};flex-shrink:0"></div>
               <div style="flex:1;min-width:0">
-                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
-                  <span style="font-size:12px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.label}</span>
-                  <span style="font-size:12px;font-weight:700;font-family:var(--mono);color:${a.color};flex-shrink:0;margin-left:6px">${fmt(pct,1)}%</span>
+                <div style="display:flex;justify-content:space-between;align-items:center;gap:4px">
+                  <span style="font-size:11px;font-weight:600;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.label}${a.note?` <span style="font-size:9px;color:var(--text3);font-weight:400">${a.note}</span>`:''}</span>
+                  <span style="font-size:11px;font-weight:700;font-family:var(--mono);color:${a.color};flex-shrink:0">${fmt(pct,1)}%</span>
                 </div>
-                <div style="height:4px;border-radius:2px;background:var(--border);overflow:hidden">
-                  <div style="height:100%;border-radius:2px;background:${a.color};width:${Math.min(100,pct)}%;transition:width .6s cubic-bezier(.4,0,.2,1)"></div>
+                <div style="height:2px;border-radius:1px;background:var(--border);overflow:hidden;margin-top:2px">
+                  <div style="height:100%;border-radius:1px;background:${a.color};width:${Math.min(100,pct)}%;transition:width .6s cubic-bezier(.4,0,.2,1)"></div>
                 </div>
-                <div style="font-size:10px;color:var(--text3);margin-top:3px;font-family:var(--mono);display:flex;align-items:center;gap:6px;flex-wrap:wrap">${fmtBRL(a.valor)}${a.note?`<span style="font-family:var(--font);background:rgba(32,201,151,.1);border:1px solid rgba(32,201,151,.2);color:#20c997;border-radius:20px;padding:1px 7px;font-size:10px;font-weight:600;white-space:nowrap">${a.note}</span>`:''}</div>
               </div>
             </div>`;
           }).join('')}
@@ -1082,7 +1084,7 @@ function renderHome(){
             <i class="ti ti-chevron-right" style="color:var(--text3);font-size:12px"></i>
           </div>
           <div class="font-mono" style="font-size:18px;font-weight:700;color:var(--amber)">${fmtBRL(empCap)}</div>
-          <div style="font-size:11px;color:var(--text2);margin-top:4px">Recebido <b style="color:var(--green)">${fmtBRL(empRec)}</b> · Pendente <b style="color:var(--amber)">${fmtBRL(empCap-empRec)}</b></div>
+          <div style="font-size:11px;color:var(--text2);margin-top:4px">${state.emprestimos.length} devedor${state.emprestimos.length!==1?'es':''} · saldo atualizado manualmente no Banco</div>
         </div>
         <div onclick="navigate('importacao')" style="cursor:pointer;padding:10px;background:var(--card2);border-radius:8px;border:1px solid var(--border);transition:var(--t)" onmouseenter="this.style.borderColor='rgba(157,113,255,.3)'" onmouseleave="this.style.borderColor='var(--border)'">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
@@ -1207,7 +1209,7 @@ function simulateData(){
 // ============================================================
 function renderGroup(){
   const type=state.currentBancaId; // reutilizamos currentBancaId para guardar 'crypto'|'bet'
-  const bancas=state.bancas.filter(b=>b.parentFolder===type);
+  const bancas=state.bancas.filter(b=>b.parentFolder===type).sort((a,b)=>(a.isOperator?1:0)-(b.isOperator?1:0));
   const isBet=type==='bet';
   const rate=getUsd();
   const totalLucro=bancas.reduce((s,b)=>s+calcBancaLucro(b.id),0);
@@ -1219,21 +1221,30 @@ function renderGroup(){
     return s+(recs.length?recs[recs.length-1].bancaFinalDia||0:last.bancaInicial||0);
   },0);
 
-  const cards=bancas.map(b=>{
+  const mkCard=(b,isPessoal)=>{
     const lucro=calcBancaLucro(b.id);
     const roi=calcBancaROI(b.id);
-    const isActive=state.currentPage==='group'&&state.currentBancaId===type;
-    return`<div onclick="navigate('banca','${b.id}')" style="flex:1;min-width:200px;padding:18px 20px;background:var(--card2);border:1px solid ${b.color}33;border-radius:var(--radius);cursor:pointer;transition:border-color var(--t),transform var(--t),box-shadow var(--t);position:relative;overflow:hidden" onmouseenter="this.style.borderColor='${b.color}99';this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 28px rgba(0,0,0,.4)'" onmouseleave="this.style.borderColor='${b.color}33';this.style.transform='none';this.style.boxShadow='none'">
-      <div style="position:absolute;top:0;right:0;width:80px;height:80px;background:radial-gradient(circle,${b.color}18 0%,transparent 70%);pointer-events:none"></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-        <div style="width:10px;height:10px;border-radius:50%;background:${b.color};box-shadow:0 0 8px ${b.color}88;flex-shrink:0"></div>
-        <span style="font-weight:700;font-size:14px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${b.color}">${b.name}</span>
-        ${b.isOperator?`<span style="font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(157,113,255,.12);color:var(--purple);border:1px solid rgba(157,113,255,.25);font-weight:700">OP ${b.split||0}%</span>`:`<span style="font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(0,201,122,.1);color:var(--green);border:1px solid rgba(0,201,122,.2);font-weight:700">Pessoal</span>`}
-      </div>
-      <div style="font-size:24px;font-weight:700;font-family:var(--mono);color:${lucro>=0?'var(--green)':'var(--red)'};letter-spacing:-.3px;margin-bottom:4px">${isBet?fmtBRL(lucro):fmtUSD(lucro)}</div>
-      <div style="font-size:12px;color:var(--text2)">${pct(roi)} ROI · ${state.months[b.id]?.length||0} ${(state.months[b.id]?.length||0)===1?'mês':'meses'}</div>
+    return`<div onclick="navigate('banca','${b.id}')" style="${isPessoal?'width:100%':'min-height:140px'};padding:${isPessoal?'24px 28px':'14px'};background:var(--card2);border:1px solid ${b.color}${isPessoal?'55':'28'};border-radius:var(--radius);cursor:pointer;transition:border-color var(--t),transform var(--t),box-shadow var(--t);position:relative;overflow:hidden${isPessoal?';box-shadow:0 0 0 1px '+b.color+'12':''}" onmouseenter="this.style.borderColor='${b.color}99';this.style.transform='translateY(-2px)';this.style.boxShadow='0 8px 28px rgba(0,0,0,.4)'" onmouseleave="this.style.borderColor='${b.color}${isPessoal?'55':'28'}';this.style.transform='none';this.style.boxShadow='${isPessoal?'0 0 0 1px '+b.color+'12':'none'}'">
+      <div style="position:absolute;top:0;right:0;width:${isPessoal?'200px':'80px'};height:${isPessoal?'200px':'80px'};background:radial-gradient(circle,${b.color}${isPessoal?'18':'0e'} 0%,transparent 70%);pointer-events:none"></div>
+      ${isPessoal
+        ?`<div style="display:flex;align-items:center;gap:8px;margin-bottom:18px">
+          <div style="width:13px;height:13px;border-radius:50%;background:${b.color};box-shadow:0 0 12px ${b.color}88;flex-shrink:0"></div>
+          <span style="font-weight:700;font-size:16px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:${b.color}">${b.name}</span>
+          <span style="font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(0,201,122,.1);color:var(--green);border:1px solid rgba(0,201,122,.2);font-weight:700">Pessoal</span>
+        </div>`
+        :`<div style="margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:5px;margin-bottom:5px">
+            <div style="width:7px;height:7px;border-radius:50%;background:${b.color};flex-shrink:0"></div>
+            <span style="font-weight:700;font-size:11px;color:${b.color};line-height:1.3;word-break:break-word">${b.name}</span>
+          </div>
+          <span style="font-size:10px;padding:1px 7px;border-radius:20px;background:rgba(157,113,255,.12);color:var(--purple);border:1px solid rgba(157,113,255,.25);font-weight:700">OP ${b.split||0}%</span>
+        </div>`}
+      <div style="font-size:${isPessoal?'32px':'20px'};font-weight:700;font-family:var(--mono);color:${lucro>=0?'var(--green)':'var(--red)'};letter-spacing:-.5px;margin-bottom:4px">${isBet?fmtBRL(lucro):fmtUSD(lucro)}</div>
+      <div style="font-size:${isPessoal?'13px':'11px'};color:var(--text2)">${pct(roi)} ROI · ${state.months[b.id]?.length||0} ${(state.months[b.id]?.length||0)===1?'mês':'meses'}</div>
     </div>`;
-  }).join('');
+  };
+  const pessoalCards=bancas.filter(b=>!b.isOperator).map(b=>mkCard(b,true)).join('');
+  const opCards=bancas.filter(b=>b.isOperator).map(b=>mkCard(b,false)).join('');
 
   return`
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
@@ -1264,8 +1275,9 @@ function renderGroup(){
 </div>
 
 <!-- BANCAS -->
-<div style="display:flex;flex-wrap:wrap;gap:14px">
-  ${cards||`<div style="color:var(--text3);font-size:13px;padding:32px;text-align:center;border:1px dashed var(--border2);border-radius:var(--radius);width:100%">Nenhuma banca cadastrada. Clique em "+ Nova banca" para começar.</div>`}
+${pessoalCards?`<div style="margin-bottom:14px">${pessoalCards}</div>`:''}
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px">
+  ${opCards||(!pessoalCards?`<div style="color:var(--text3);font-size:13px;padding:32px;text-align:center;border:1px dashed var(--border2);border-radius:var(--radius);grid-column:1/-1">Nenhuma banca cadastrada. Clique em "+ Nova banca" para começar.</div>`:'')}
 </div>`;
 }
 
@@ -1619,20 +1631,31 @@ ${operadorBanner}
 <table>
 <thead><tr>${tableHeaders.map(h=>`<th class="${['BANCA FINAL','% DIA','LUCRO $','LUCRO R$'].includes(h)?'num':''}">${h}</th>`).join('')}</tr></thead>
 <tbody>
-${recs.map(r=>`<tr>
+${recs.map(r=>{
+  const isSaque=r.tipo==='Saque';
+  const isDeposito=r.tipo==='Depósito';
+  const neutro=isSaque||isDeposito;
+  const tipoStyle=isSaque?'color:var(--amber);font-weight:700':isDeposito?'color:var(--green);font-weight:700':'';
+  const saqueValor=isSaque?(r.bancaValor||0)-(r.bancaFinalDia||0):0;
+  const saqueTag=isSaque?`<span style="font-size:10px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);border-radius:4px;padding:1px 5px;color:var(--amber);margin-left:4px" title="Saque — não é prejuízo">-${fmtUSD(saqueValor)}</span>`:'';
+  const brlInfo=isSaque&&r.saqueBRL?`<span style="font-size:10px;color:var(--green);margin-left:3px">→ ${fmtBRL(r.saqueBRL)}</span>`:'';
+  const pctCl=(r.pctDia||0)>=0?'green':'red';
+  const lucroCl=(r.lucroUSD||0)>=0?'green':'red';
+  const brlCl=(r['lucroR$']||0)>=0?'green':'red';
+  return `<tr${isSaque?' style="border-left:3px solid var(--amber)"':''}>
   <td>${r.data}</td>
-  <td>${r.tipo||'Operação'}</td>
+  <td style="${tipoStyle}">${r.tipo||'Operação'}${saqueTag}${brlInfo}</td>
   <td class="num font-mono">${fmtUSD(r.bancaValor||0)}</td>
   ${activeEx.map(ex=>`<td class="num">${r.exchanges?.[ex]?fmtUSD(r.exchanges[ex]):'-'}</td>`).join('')}
   <td class="num font-mono">${fmtUSD(r.bancaFinalDia||0)}</td>
-  <td class="num ${(r.pctDia||0)>=0?'green':'red'}">${pct(r.pctDia||0)}</td>
-  ${!isBet?`<td class="num ${(r.lucroUSD||0)>=0?'green':'red'}">${fmtUSD(r.lucroUSD||0)}</td>`:''}
-  <td class="num ${(r['lucroR$']||0)>=0?'green':'red'}">${fmtBRL(r['lucroR$']||0)}</td>
+  <td class="num ${neutro?'':pctCl}">${neutro?'<span style="color:var(--text3)">—</span>':pct(r.pctDia||0)}</td>
+  ${!isBet?`<td class="num ${neutro?'':lucroCl}">${neutro?'<span style="color:var(--text3)">—</span>':fmtUSD(r.lucroUSD||0)}</td>`:''}
+  <td class="num ${neutro?'':brlCl}">${neutro?'<span style="color:var(--text3)">—</span>':fmtBRL(r['lucroR$']||0)}</td>
   <td><div class="table-actions">
     <button onclick="editRecord('${banca.id}','${m.id}','${r.id}')"><i class="ti ti-pencil"></i></button>
     <button onclick="deleteRecord('${banca.id}','${m.id}','${r.id}')"><i class="ti ti-trash"></i></button>
   </div></td>
-</tr>`).join('')}
+</tr>`;}).join('')}
 ${!recs.length?'<tr><td colspan="100" style="text-align:center;color:var(--text3);padding:24px">Nenhum registro. Clique em "+ Novo registro" para começar.</td></tr>':''}
 </tbody>
 </table>
@@ -1647,12 +1670,11 @@ function afterRender(){
       const rate=getUsd();
       const cryptoBancas=state.bancas.filter(b=>b.parentFolder==='crypto');
       const betBancas=state.bancas.filter(b=>b.parentFolder==='bet');
-      function bancaSaldoAtual(id){const months=(state.months[id]||[]).slice().sort((a,c)=>a.year*100+a.month-(c.year*100+c.month));if(!months.length)return 0;const last=months[months.length-1];const recs=last.records||[];return recs.length?(recs[recs.length-1].bancaFinalDia||0):(last.bancaInicial||0);}
       const accent=getComputedStyle(document.documentElement).getPropertyValue('--orange').trim()||'#f7931a';
       const empCapChart=state.emprestimos.reduce((s,e)=>s+(e.capital||0),0);
       const items=[
-        {v:cryptoBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0)*rate,c:accent},
-        {v:betBancas.reduce((s,b)=>s+bancaSaldoAtual(b.id),0),c:'#4361ee'},
+        {v:cryptoBancas.reduce((s,b)=>s+bancaSaldoInfo(b.id).valor,0)*rate,c:accent},
+        {v:betBancas.reduce((s,b)=>s+bancaSaldoInfo(b.id).valor,0),c:'#4361ee'},
         {v:getBancoBRL(),c:'#2dc653'},
         {v:state.banco.reservaBRL,c:'#cc5de8'},
         {v:(state.banco.contaUSD+state.banco.trezorUSD)*rate,c:'#ffd43b'},
@@ -1985,8 +2007,9 @@ async function fetchCryptoPrices(){
   try{
     const r=await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${ids}&vs_currencies=usd`);
     const data=await r.json();
-    const now=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
-    holdings.forEach(h=>{const gid=CRYPTO_IDS[h.symbol];if(gid&&data[gid])h.priceUSD=data[gid].usd,h.priceAt=now;});
+    const ontem=new Date();ontem.setDate(ontem.getDate()-1);
+    const ontemStr=ontem.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'});
+    holdings.forEach(h=>{const gid=CRYPTO_IDS[h.symbol];if(gid&&data[gid])h.priceUSD=data[gid].usd,h.priceAt=ontemStr;});
     saveState();renderPage();showToast('Cotações atualizadas!');
   }catch(e){showToast('Erro ao buscar cotações.');}
 }
@@ -2323,7 +2346,6 @@ function renderEmprestimos(){
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-cash"></i> Capital emprestado</div><div class="stat-card-value amber">${fmtBRL(totalCap)}</div></div>
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-percent"></i> Média de juros</div><div class="stat-card-value purple">${fmt(mediaJuros,2)}%/mês</div><div class="stat-card-sub">${fmtBRL(rendaMensal)}/mês sobre capital</div></div>
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-trending-up"></i> Lucro total (juros)</div><div class="stat-card-value green">${fmtBRL(jurosTotal)}</div></div>
-  <div class="stat-card"><div class="stat-card-label"><i class="ti ti-receipt-2"></i> Total recebido</div><div class="stat-card-value green">${fmtBRL(totalRec)}</div></div>
   <div class="stat-card"><div class="stat-card-label"><i class="ti ti-clock-hour-4"></i> Pendente</div><div class="stat-card-value ${pendente>0?'amber':'green'}">${fmtBRL(pendente)}</div></div>
 </div>
 ${emps.map(e=>{
@@ -2332,7 +2354,6 @@ ${emps.map(e=>{
   const pct=total?Math.round(pagas/total*100):0;
   const diaVenc=e.vencimento?parseInt(e.vencimento.split('-')[2]):null;
   const totalEmp=(e.parcelas||[]).reduce((s,p)=>s+(p.valor||0),0);
-  const recEmp=(e.parcelas||[]).filter(p=>p.pago).reduce((s,p)=>s+(p.valor||0),0);
   return `<div class="stat-card" style="margin-bottom:16px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
       <div style="font-weight:700">${e.nome}</div>
@@ -2345,17 +2366,16 @@ ${emps.map(e=>{
     <div style="display:flex;gap:24px;margin-bottom:12px;font-size:13px;flex-wrap:wrap">
       <span><b style="color:var(--amber)">${fmtBRL(e.capital||0)}</b> capital</span>
       <span><b>${e.jurosPct||0}%</b>/mês</span>
-      <span><b style="color:var(--green)">${fmtBRL(totalEmp-e.capital)}</b> juros</span>
-      <span><b>${fmtBRL(recEmp)}</b> recebido</span>
+      <span><b style="color:var(--green)">${fmtBRL(totalEmp-e.capital)}</b> juros projetados</span>
     </div>
     <div class="text-sm text-muted" style="margin-bottom:6px">${pagas}/${total} parcelas pagas</div>
     <div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:12px">
       ${(e.parcelas||[]).map((p,i)=>`
-        <button onclick="toggleParcela('${e.id}',${p.id})" style="cursor:pointer;border:none;background:none;padding:0">
-          <div class="pill ${p.pago?'pill-green':'pill-amber'}" style="flex-direction:column;gap:1px;padding:4px 10px;line-height:1.2">
-            <span>${e.vencimento?getParcelaMes(i,e.vencimento):p.mes}</span>
-            ${diaVenc?`<span style="font-size:9px;opacity:.65">dia ${diaVenc}</span>`:''}
+        <button onclick="toggleParcela('${e.id}',${p.id})" style="cursor:pointer;border:none;background:none;padding:0" title="${p.pago?'Clique para desfazer':'Marcar como recebido (adicionar ao Banco manualmente)'}">
+          <div style="flex-direction:column;gap:2px;padding:5px 10px;line-height:1.1;display:inline-flex;align-items:center;border-radius:20px;font-size:11px;font-weight:600;letter-spacing:.2px;${p.pago?'opacity:0.3;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);color:var(--text3);text-decoration:line-through;':'background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.15);color:var(--amber);'}">
+            <span style="font-size:11px;font-weight:700">${e.vencimento?getParcelaMes(i,e.vencimento):p.mes}</span>
+            ${diaVenc?`<span style="font-size:10px;opacity:.8">dia ${diaVenc}</span>`:''}
           </div>
         </button>
       `).join('')}
@@ -2926,6 +2946,8 @@ function showAddRecordModal(bancaId,monthId){
   const banca=state.bancas.find(b=>b.id===bancaId);
   const activeEx=m.activeExchanges||[];
   const today=new Date().toISOString().split('T')[0];
+  const sortedRecs=[...(m.records||[])].sort((a,b)=>a.data<b.data?-1:1);
+  const bancaAnterior=sortedRecs.length?(sortedRecs[sortedRecs.length-1].bancaFinalDia||0):(m.bancaInicial||0);
 
   showModal({
     title:'Novo registro',
@@ -2934,21 +2956,85 @@ function showAddRecordModal(bancaId,monthId){
     <div class="form-row">
         <div class="form-group"><label class="form-label">Data</label><input id="m-data" class="form-control" type="date" value="${today}"></div>
         <div class="form-group"><label class="form-label">Tipo</label>
-          <select id="m-tipo" class="form-control"><option>Operação</option><option>Depósito</option><option>Saque</option></select></div>
+          <select id="m-tipo" class="form-control" onchange="toggleSaqueFields()""><option>Operação</option><option>Depósito</option><option>Saque</option></select></div>
       </div>
-      <div class="form-group"><label class="form-label">Banca Inicial do Dia ($)</label><input id="m-bval" class="form-control" type="number" step="0.01"></div>
-      <div style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:10px">${(()=>{const b=state.bancas.find(b=>b.id===bancaId);return b?.type==='bet'?'Saldos por casa de apostas':'Saldos por exchange';})()}</div>
-      <div class="form-row-3">
-        ${activeEx.map(ex=>`<div class="form-group"><label class="form-label" style="font-size:11px">${ex}</label><input id="ex-${ex.replace(/\s/g,'_')}" class="form-control" type="number" step="0.01" placeholder="0" oninput="calcRecord()"></div>`).join('')}
+      <div class="form-group"><label class="form-label">Banca Inicial do Dia ($)</label><input id="m-bval" class="form-control" type="number" step="0.01" value="${bancaAnterior||''}" oninput="calcRecord()"></div>
+
+      <!-- Campos normais (Operação/Depósito) -->
+      <div id="rec-op-fields">
+        <div style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:10px">${(()=>{const b=state.bancas.find(b=>b.id===bancaId);return b?.type==='bet'?'Saldos por casa de apostas':'Saldos por exchange';})()}</div>
+        <div class="form-row-3">
+          ${activeEx.map(ex=>`<div class="form-group"><label class="form-label" style="font-size:11px">${ex}</label><input id="ex-${ex.replace(/\s/g,'_')}" class="form-control" type="number" step="0.01" placeholder="0" oninput="calcRecord()"></div>`).join('')}
+        </div>
+        <div style="background:var(--card2);border-radius:8px;padding:12px;display:flex;gap:20px;font-size:13px" id="record-calc">
+          <span>Banca Final: <b id="rc-final" class="font-mono">$0.00</b></span>
+          <span>% Dia: <b id="rc-pct" class="font-mono green">0.00%</b></span>
+          <span>Lucro $: <b id="rc-lucro" class="font-mono green">$0.00</b></span>
+          <span>Lucro R$: <b id="rc-brl" class="font-mono">R$0.00</b></span>
+        </div>
       </div>
-      <div style="background:var(--card2);border-radius:8px;padding:12px;display:flex;gap:20px;font-size:13px" id="record-calc">
-        <span>Banca Final: <b id="rc-final" class="font-mono">$0.00</b></span>
-        <span>% Dia: <b id="rc-pct" class="font-mono green">0.00%</b></span>
-        <span>Lucro $: <b id="rc-lucro" class="font-mono green">$0.00</b></span>
-        <span>Lucro R$: <b id="rc-brl" class="font-mono">R$0.00</b></span>
+
+      <!-- Campos de Saque -->
+      <div id="rec-saque-fields" style="display:none">
+        <div style="background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.25);border-radius:9px;padding:14px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:11px;font-weight:700;color:var(--amber)">SAQUE — debita da banca, não conta como prejuízo</div>
+          <div class="form-row">
+            <div class="form-group"><label class="form-label">Valor do saque ($)</label><input id="m-saque-val" class="form-control" type="number" step="0.01" placeholder="0" oninput="calcSaque()"></div>
+            <div class="form-group"><label class="form-label">Banca após saque ($)</label><input id="m-saque-final" class="form-control" type="number" step="0.01" placeholder="auto" oninput="calcSaque()"></div>
+          </div>
+          <div style="font-size:11px;font-weight:700;color:var(--text2)">Destino do dinheiro</div>
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px"><input type="radio" name="m-saque-dest" value="usd" checked onchange="toggleSaqueDestino()"> USD — mantém em carteira/exchange</label>
+            <label style="display:flex;align-items:center;gap:5px;cursor:pointer;font-size:12px"><input type="radio" name="m-saque-dest" value="brl" onchange="toggleSaqueDestino()"> BRL — converter para banco</label>
+          </div>
+          <div id="m-saque-brl-fields" style="display:none">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="m-saque-brl-modo" value="cotacao" checked onchange="calcSaque()"> Cotação USD/BRL: R$<input id="m-saque-cot" class="form-control" type="number" step="0.01" value="${(()=>{const r=getUsd();return r?r.toFixed(2):'5.75';})()}" style="width:70px;display:inline-block;margin-left:4px" oninput="calcSaque()"></label>
+              <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-size:12px"><input type="radio" name="m-saque-brl-modo" value="valorBRL" onchange="calcSaque()"> Valor já convertido: R$<input id="m-saque-brl-manual" class="form-control" type="number" step="0.01" placeholder="0.00" style="width:90px;display:inline-block;margin-left:4px" oninput="calcSaque()"></label>
+            </div>
+          </div>
+          <div id="m-saque-preview" style="font-size:12px;color:var(--text2)"></div>
+          <div style="font-size:11px;color:var(--text3)">Selecione o banco de destino (opcional — crédito automático no saldo do banco)</div>
+          <select id="m-saque-banco" class="form-control" style="max-width:260px">
+            <option value="">— Não creditar em banco agora —</option>
+            ${(state.banco.bancos||[]).map(b=>`<option value="${b.id}">${b.nome} (${fmtBRL(b.saldo||0)})</option>`).join('')}
+          </select>
+        </div>
       </div>`,
     onOk:()=>{
+      const tipo=document.getElementById('m-tipo').value;
       const bancaInicial=parseFloat(document.getElementById('m-bval').value)||0;
+      const data=document.getElementById('m-data').value;
+
+      if(tipo==='Saque'){
+        const saqueVal=parseFloat(document.getElementById('m-saque-val').value)||0;
+        const saqueManualFinal=parseFloat(document.getElementById('m-saque-final').value);
+        const bancaFinal=!isNaN(saqueManualFinal)?saqueManualFinal:Math.max(0,bancaInicial-saqueVal);
+        const dest=document.querySelector('input[name="m-saque-dest"]:checked')?.value||'usd';
+        const brlModo=document.querySelector('input[name="m-saque-brl-modo"]:checked')?.value||'cotacao';
+        let saqueBRL=0;
+        if(dest==='brl'){
+          if(brlModo==='cotacao'){
+            const cot=parseFloat(document.getElementById('m-saque-cot').value)||0;
+            saqueBRL=+(saqueVal*cot).toFixed(2);
+          } else {
+            saqueBRL=parseFloat(document.getElementById('m-saque-brl-manual').value)||0;
+          }
+        }
+        // Crédito automático no banco selecionado
+        const bancoDest=document.getElementById('m-saque-banco').value;
+        if(bancoDest&&(dest==='usd'||saqueBRL>0)){
+          const bk=(state.banco.bancos||[]).find(b=>b.id===bancoDest);
+          if(bk){
+            if(dest==='brl') bk.saldo=+(( bk.saldo||0)+saqueBRL).toFixed(2);
+            else bk.saldo=+((bk.saldo||0)+(saqueVal*getUsd())).toFixed(2);
+          }
+        }
+        m.records.push({id:uid(),data,tipo:'Saque',bancaValor:bancaInicial,exchanges:{},bancaFinalDia:bancaFinal,pctDia:0,lucroUSD:0,'lucroR$':0,saqueUSD:saqueVal,saqueBRL:saqueBRL||undefined,saqueDestino:dest});
+        closeModal();renderPage();
+        return;
+      }
+
       const exchanges={};
       let bancaFinal=0;
       activeEx.forEach(ex=>{
@@ -2960,8 +3046,8 @@ function showAddRecordModal(bancaId,monthId){
       const pctDia=bancaInicial?(lucroUSD/bancaInicial*100):0;
       m.records.push({
         id:uid(),
-        data:document.getElementById('m-data').value,
-        tipo:document.getElementById('m-tipo').value,
+        data,
+        tipo,
         bancaValor:bancaInicial,
         exchanges,
         bancaFinalDia:bancaFinal,
@@ -2988,6 +3074,45 @@ function calcRecord(){
   if(rcP){rcP.textContent=pct.toFixed(2)+'%';rcP.style.color=pct>=0?'var(--green)':'var(--red)'}
   if(rcL){rcL.textContent=fmtUSD(lucro);rcL.style.color=lucro>=0?'var(--green)':'var(--red)'}
   if(rcB)rcB.textContent=fmtBRL(lucro*getUsd());
+}
+
+function toggleSaqueFields(){
+  const tipo=document.getElementById('m-tipo')?.value;
+  const isSaque=tipo==='Saque';
+  const opF=document.getElementById('rec-op-fields');
+  const sqF=document.getElementById('rec-saque-fields');
+  if(opF) opF.style.display=isSaque?'none':'block';
+  if(sqF) sqF.style.display=isSaque?'block':'none';
+}
+function toggleSaqueDestino(){
+  const dest=document.querySelector('input[name="m-saque-dest"]:checked')?.value;
+  const brlF=document.getElementById('m-saque-brl-fields');
+  if(brlF) brlF.style.display=dest==='brl'?'block':'none';
+  calcSaque();
+}
+function calcSaque(){
+  const bv=parseFloat(document.getElementById('m-bval')?.value)||0;
+  const sv=parseFloat(document.getElementById('m-saque-val')?.value)||0;
+  // auto-fill banca final
+  const finalInp=document.getElementById('m-saque-final');
+  if(finalInp&&!finalInp.value) finalInp.placeholder=`auto = ${fmtUSD(Math.max(0,bv-sv))}`;
+  const dest=document.querySelector('input[name="m-saque-dest"]:checked')?.value||'usd';
+  const modo=document.querySelector('input[name="m-saque-brl-modo"]:checked')?.value||'cotacao';
+  const prev=document.getElementById('m-saque-preview');
+  if(!prev||!sv) return;
+  if(dest==='usd'){
+    prev.innerHTML=`<span style="color:var(--amber)">$${sv} sai da banca</span> → <span style="color:var(--blue)">fica em USD</span> · Banca após: <b>${fmtUSD(Math.max(0,bv-sv))}</b>`;
+  } else {
+    let brl=0;
+    if(modo==='cotacao'){
+      const cot=parseFloat(document.getElementById('m-saque-cot')?.value)||0;
+      brl=sv*cot;
+      prev.innerHTML=`<span style="color:var(--amber)">$${sv}</span> × R$${cot} = <span style="color:var(--green);font-weight:700">${fmtBRL(brl)}</span> → banco BRL · Banca após: <b>${fmtUSD(Math.max(0,bv-sv))}</b>`;
+    } else {
+      brl=parseFloat(document.getElementById('m-saque-brl-manual')?.value)||0;
+      prev.innerHTML=`<span style="color:var(--amber)">$${sv}</span> = <span style="color:var(--green);font-weight:700">${fmtBRL(brl)}</span> (cotação implícita R$${sv?+(brl/sv).toFixed(4):0}) · Banca após: <b>${fmtUSD(Math.max(0,bv-sv))}</b>`;
+    }
+  }
 }
 
 
@@ -3218,7 +3343,7 @@ function getParcelaMes(offset,baseDate){
   const d=baseDate?new Date(baseDate+'T12:00:00'):new Date();
   if(!baseDate)d.setMonth(d.getMonth()+1);
   d.setMonth(d.getMonth()+offset);
-  return (d.getMonth()+1).toString().padStart(2,'0')+'/'+d.getFullYear().toString().substr(2);
+  return MONTHS_PT[d.getMonth()].substr(0,3)+'/'+d.getFullYear().toString().substr(2);
 }
 
 function editEmprestimo(id){
