@@ -1637,7 +1637,7 @@ ${recs.map(r=>{
   const neutro=isSaque||isDeposito;
   const tipoStyle=isSaque?'color:var(--amber);font-weight:700':isDeposito?'color:var(--green);font-weight:700':'';
   const saqueValor=isSaque?(r.bancaValor||0)-(r.bancaFinalDia||0):0;
-  const saqueTag=isSaque?`<span style="font-size:10px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);border-radius:4px;padding:1px 5px;color:var(--amber);margin-left:4px" title="Saque — não é prejuízo">-${fmtUSD(saqueValor)}</span>`:'';
+  const saqueTag=isSaque?`<span style="font-size:10px;background:rgba(245,166,35,.15);border:1px solid rgba(245,166,35,.3);border-radius:4px;padding:1px 5px;color:var(--amber);margin-left:4px" title="Saque — não é prejuízo">-${isBet?fmtBRL(saqueValor):fmtUSD(saqueValor)}</span>`:'';
   const brlInfo=isSaque&&r.saqueBRL?`<span style="font-size:10px;color:var(--green);margin-left:3px">→ ${fmtBRL(r.saqueBRL)}</span>`:'';
   const pctCl=(r.pctDia||0)>=0?'green':'red';
   const lucroCl=(r.lucroUSD||0)>=0?'green':'red';
@@ -1645,9 +1645,9 @@ ${recs.map(r=>{
   return `<tr${isSaque?' style="border-left:3px solid var(--amber)"':''}>
   <td>${r.data}</td>
   <td style="${tipoStyle}">${r.tipo||'Operação'}${saqueTag}${brlInfo}</td>
-  <td class="num font-mono">${fmtUSD(r.bancaValor||0)}</td>
-  ${activeEx.map(ex=>`<td class="num">${r.exchanges?.[ex]?fmtUSD(r.exchanges[ex]):'-'}</td>`).join('')}
-  <td class="num font-mono">${fmtUSD(r.bancaFinalDia||0)}</td>
+  <td class="num font-mono">${isBet?fmtBRL(r.bancaValor||0):fmtUSD(r.bancaValor||0)}</td>
+  ${activeEx.map(ex=>`<td class="num">${r.exchanges?.[ex]?(isBet?fmtBRL(r.exchanges[ex]):fmtUSD(r.exchanges[ex])):'-'}</td>`).join('')}
+  <td class="num font-mono">${isBet?fmtBRL(r.bancaFinalDia||0):fmtUSD(r.bancaFinalDia||0)}</td>
   <td class="num ${neutro?'':pctCl}">${neutro?'<span style="color:var(--text3)">—</span>':pct(r.pctDia||0)}</td>
   ${!isBet?`<td class="num ${neutro?'':lucroCl}">${neutro?'<span style="color:var(--text3)">—</span>':fmtUSD(r.lucroUSD||0)}</td>`:''}
   <td class="num ${neutro?'':brlCl}">${neutro?'<span style="color:var(--text3)">—</span>':fmtBRL(r['lucroR$']||0)}</td>
@@ -2944,6 +2944,9 @@ function showAddRecordModal(bancaId,monthId){
   const m=months.find(m=>m.id===monthId);
   if(!m)return;
   const banca=state.bancas.find(b=>b.id===bancaId);
+  const isBet=banca?.type==='bet';
+  window._currentModalIsBet=isBet;
+  const cur=isBet?'R$':'$';
   const activeEx=m.activeExchanges||[];
   const today=new Date().toISOString().split('T')[0];
   const sortedRecs=[...(m.records||[])].sort((a,b)=>a.data<b.data?-1:1);
@@ -2958,18 +2961,18 @@ function showAddRecordModal(bancaId,monthId){
         <div class="form-group"><label class="form-label">Tipo</label>
           <select id="m-tipo" class="form-control" onchange="toggleSaqueFields()""><option>Operação</option><option>Depósito</option><option>Saque</option></select></div>
       </div>
-      <div class="form-group"><label class="form-label">Banca Inicial do Dia ($)</label><input id="m-bval" class="form-control" type="number" step="0.01" value="${bancaAnterior||''}" oninput="calcRecord()"></div>
+      <div class="form-group"><label class="form-label">Banca Inicial do Dia (${cur})</label><input id="m-bval" class="form-control" type="number" step="0.01" value="${bancaAnterior||''}" oninput="calcRecord()"></div>
 
       <!-- Campos normais (Operação/Depósito) -->
       <div id="rec-op-fields">
-        <div style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:10px">${(()=>{const b=state.bancas.find(b=>b.id===bancaId);return b?.type==='bet'?'Saldos por casa de apostas':'Saldos por exchange';})()}</div>
+        <div style="font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--text2);margin-bottom:10px">${isBet?'Saldos por casa de apostas':'Saldos por exchange'}</div>
         <div class="form-row-3">
           ${activeEx.map(ex=>`<div class="form-group"><label class="form-label" style="font-size:11px">${ex}</label><input id="ex-${ex.replace(/\s/g,'_')}" class="form-control" type="number" step="0.01" placeholder="0" oninput="calcRecord()"></div>`).join('')}
         </div>
         <div style="background:var(--card2);border-radius:8px;padding:12px;display:flex;gap:20px;font-size:13px" id="record-calc">
-          <span>Banca Final: <b id="rc-final" class="font-mono">$0.00</b></span>
+          <span>Banca Final: <b id="rc-final" class="font-mono">${cur}0.00</b></span>
           <span>% Dia: <b id="rc-pct" class="font-mono green">0.00%</b></span>
-          <span>Lucro $: <b id="rc-lucro" class="font-mono green">$0.00</b></span>
+          ${isBet?'':`<span>Lucro $: <b id="rc-lucro" class="font-mono green">$0.00</b></span>`}
           <span>Lucro R$: <b id="rc-brl" class="font-mono">R$0.00</b></span>
         </div>
       </div>
@@ -2979,8 +2982,8 @@ function showAddRecordModal(bancaId,monthId){
         <div style="background:rgba(245,166,35,.07);border:1px solid rgba(245,166,35,.25);border-radius:9px;padding:14px;display:flex;flex-direction:column;gap:12px">
           <div style="font-size:11px;font-weight:700;color:var(--amber)">SAQUE — debita da banca, não conta como prejuízo</div>
           <div class="form-row">
-            <div class="form-group"><label class="form-label">Valor do saque ($)</label><input id="m-saque-val" class="form-control" type="number" step="0.01" placeholder="0" oninput="calcSaque()"></div>
-            <div class="form-group"><label class="form-label">Banca após saque ($)</label><input id="m-saque-final" class="form-control" type="number" step="0.01" placeholder="auto" oninput="calcSaque()"></div>
+            <div class="form-group"><label class="form-label">Valor do saque (${cur})</label><input id="m-saque-val" class="form-control" type="number" step="0.01" placeholder="0" oninput="calcSaque()"></div>
+            <div class="form-group"><label class="form-label">Banca após saque (${cur})</label><input id="m-saque-final" class="form-control" type="number" step="0.01" placeholder="auto" oninput="calcSaque()"></div>
           </div>
           <div style="font-size:11px;font-weight:700;color:var(--text2)">Destino do dinheiro</div>
           <div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -3052,7 +3055,7 @@ function showAddRecordModal(bancaId,monthId){
         exchanges,
         bancaFinalDia:bancaFinal,
         pctDia,lucroUSD,
-        'lucroR$':lucroUSD*getUsd()
+        'lucroR$':isBet?lucroUSD:(lucroUSD*getUsd())
       });
       closeModal();renderPage();
     }
@@ -3060,6 +3063,7 @@ function showAddRecordModal(bancaId,monthId){
 }
 
 function calcRecord(){
+  const isBet=window._currentModalIsBet||false;
   const bv=parseFloat(document.getElementById('m-bval')?.value)||0;
   let total=0;
   document.querySelectorAll('[id^="ex-"]').forEach(inp=>{total+=parseFloat(inp.value)||0});
@@ -3070,10 +3074,10 @@ function calcRecord(){
   const rcP=document.getElementById('rc-pct');
   const rcL=document.getElementById('rc-lucro');
   const rcB=document.getElementById('rc-brl');
-  if(rcF)rcF.textContent=fmtUSD(total);
+  if(rcF)rcF.textContent=isBet?fmtBRL(total):fmtUSD(total);
   if(rcP){rcP.textContent=pct.toFixed(2)+'%';rcP.style.color=pct>=0?'var(--green)':'var(--red)'}
   if(rcL){rcL.textContent=fmtUSD(lucro);rcL.style.color=lucro>=0?'var(--green)':'var(--red)'}
-  if(rcB)rcB.textContent=fmtBRL(lucro*getUsd());
+  if(rcB)rcB.textContent=isBet?fmtBRL(lucro):fmtBRL(lucro*getUsd());
 }
 
 function toggleSaqueFields(){
@@ -3095,7 +3099,8 @@ function calcSaque(){
   const sv=parseFloat(document.getElementById('m-saque-val')?.value)||0;
   // auto-fill banca final
   const finalInp=document.getElementById('m-saque-final');
-  if(finalInp&&!finalInp.value) finalInp.placeholder=`auto = ${fmtUSD(Math.max(0,bv-sv))}`;
+  const _isBetSq=window._currentModalIsBet||false;
+  if(finalInp&&!finalInp.value) finalInp.placeholder=`auto = ${_isBetSq?fmtBRL(Math.max(0,bv-sv)):fmtUSD(Math.max(0,bv-sv))}`;
   const dest=document.querySelector('input[name="m-saque-dest"]:checked')?.value||'usd';
   const modo=document.querySelector('input[name="m-saque-brl-modo"]:checked')?.value||'cotacao';
   const prev=document.getElementById('m-saque-preview');
@@ -3121,7 +3126,10 @@ function editRecord(bancaId,monthId,recordId){
   const m=months.find(m=>m.id===monthId);
   const r=m?.records?.find(r=>r.id===recordId);
   if(!r)return;
+  const banca=state.bancas.find(b=>b.id===bancaId);
+  const isBet=banca?.type==='bet';
   const activeEx=m.activeExchanges||[];
+  const cur=isBet?'R$':'$';
   showModal({
     title:'Editar registro',
     large:true,
@@ -3131,7 +3139,7 @@ function editRecord(bancaId,monthId,recordId){
       <div class="form-group"><label class="form-label">Tipo</label>
         <select id="m-tipo" class="form-control"><option ${r.tipo==='Operação'?'selected':''}>Operação</option><option ${r.tipo==='Depósito'?'selected':''}>Depósito</option><option ${r.tipo==='Saque'?'selected':''}>Saque</option></select></div>
     </div>
-    <div class="form-group"><label class="form-label">Banca Inicial ($)</label><input id="m-bval" class="form-control" type="number" step="0.01" value="${r.bancaValor||0}"></div>
+    <div class="form-group"><label class="form-label">Banca Inicial (${cur})</label><input id="m-bval" class="form-control" type="number" step="0.01" value="${r.bancaValor||0}"></div>
     <div class="form-row-3">
       ${activeEx.map(ex=>`<div class="form-group"><label class="form-label" style="font-size:11px">${ex}</label><input id="ex-${ex.replace(/\s/g,'_')}" class="form-control" type="number" step="0.01" value="${r.exchanges?.[ex]||0}" oninput="calcRecord()"></div>`).join('')}
     </div>`,
@@ -3148,7 +3156,7 @@ function editRecord(bancaId,monthId,recordId){
       r.bancaFinalDia=bf;
       r.lucroUSD=bf-r.bancaValor;
       r.pctDia=r.bancaValor?(r.lucroUSD/r.bancaValor*100):0;
-      r['lucroR$']=r.lucroUSD*getUsd();
+      r['lucroR$']=isBet?r.lucroUSD:(r.lucroUSD*getUsd());
       closeModal();renderPage();
     }
   });
